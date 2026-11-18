@@ -1662,9 +1662,32 @@ function restore(file) {
   r.onload = () => {
     let j; try { j = JSON.parse(r.result); } catch (e) { toast('Il file non è un backup valido.', true); return; }
     if (!j || j.app !== 'bilancio' || !j.data) { toast('Il file non è un backup di Bubudex.', true); return; }
-    let n = 0;
-    for (const c of [...COLS, 'settings']) for (const [id, d] of Object.entries(j.data[c] || {})) { if (d && typeof d === 'object') { put(c, id, d); n++; } }
-    toast(`Ripristinati ${n} elementi`);
+    // Le categorie con lo stesso nome e tipo di una tua categoria esistente vengono unite a quella (niente doppioni).
+    const norm = x => String(x || '').trim().toLowerCase();
+    const remap = {};
+    for (const [id, c] of Object.entries(j.data.categories || {})) {
+      const ex = S.categories.find(e => norm(e.name) === norm(c.name) && e.kind === c.kind);
+      if (ex && ex.id !== id) remap[id] = ex.id;
+    }
+    const rc = id => remap[id] || id;
+    const remapKeys = o => o ? Object.fromEntries(Object.entries(o).map(([k, v]) => [rc(k), v])) : o;
+    let n = 0, merged = 0;
+    for (const c of [...COLS, 'settings']) for (const [id, d0] of Object.entries(j.data[c] || {})) {
+      if (!d0 || typeof d0 !== 'object') continue;
+      let d = d0;
+      if (c === 'categories') { if (remap[id]) { merged++; continue; } }
+      else if (c === 'transactions' || c === 'recurring') { if (d.categoryId) d = { ...d, categoryId: rc(d.categoryId) }; }
+      else if (c === 'properties' && d.mortgage && d.mortgage.categoryId) d = { ...d, mortgage: { ...d.mortgage, categoryId: rc(d.mortgage.categoryId) } };
+      else if (c === 'settings' && id === 'main') {
+        d = { ...S.settings, ...d };
+        if (d0.budgets) d.budgets = { ...(S.settings.budgets || {}), ...remapKeys(d0.budgets) };
+        if (d0.budgetsYear) d.budgetsYear = { ...(S.settings.budgetsYear || {}), ...remapKeys(d0.budgetsYear) };
+        if (d0.budgetsMonth) d.budgetsMonth = { ...(S.settings.budgetsMonth || {}), ...Object.fromEntries(Object.entries(d0.budgetsMonth).map(([ym, b]) => [ym, remapKeys(b)])) };
+        if (d0.rules) d.rules = d0.rules.map(r => ({ ...r, c: rc(r.c) }));
+      }
+      put(c, id, d); n++;
+    }
+    toast(`Ripristinati ${n} elementi` + (merged ? ` · ${merged} categorie unite alle tue` : ''));
   };
   r.readAsText(file);
 }
