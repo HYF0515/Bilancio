@@ -976,7 +976,7 @@ VIEWS.patrimonio = () => {
   return `
   <div class="head"><div><div class="eyebrow">Patrimonio</div><h1>${money0(liquid + inv)}</h1></div>
     <div class="head-actions"><button class="btn" data-act="snapshot">Registra valore di oggi</button><button class="btn" data-act="new-acc">+ Conto</button><button class="btn primary" data-act="new-hold">+ Investimento</button></div></div>
-  <section class="panel"><div class="panel-h"><h2>Andamento del patrimonio netto</h2><div class="chart-legend"><span><i class="dot" style="background:var(--accent)"></i>Patrimonio netto</span><span><i class="dot" style="background:var(--pos)"></i>Liquidità</span></div></div><div class="chart" data-chart="networth"></div>
+  <section class="panel"><div class="panel-h"><h2>Andamento del patrimonio netto</h2><div class="chart-legend"><span><i class="dot" style="background:var(--bar)"></i>Patrimonio netto</span><span><i class="dot" style="background:var(--chart-in)"></i>Liquidità</span></div></div><div class="chart" data-chart="networth"></div>
     <p class="muted" style="font-size:.8rem;margin:8px 0 0">La liquidità è ricostruita dai movimenti. Il valore degli investimenti nei mesi passati viene dalle registrazioni che salvi con “Registra valore di oggi”.</p></section>
   <section class="panel"><div class="panel-h"><h2>Asset allocation</h2></div>
     <div class="alloc">${alloc.map(x => `<i style="flex:${x.v};background:${x.c}" title="${esc(x.k)}"></i>`).join('') || '<i style="flex:1;background:var(--surface-2)"></i>'}</div>
@@ -1109,10 +1109,10 @@ function networthChart(W) {
   let g = '';
   for (let i = 0; i <= 4; i++) { const v = lo0 + (max - lo0) * i / 4; g += `<line class="grid-l" x1="${pl}" x2="${W - pr}" y1="${y(v)}" y2="${y(v)}"/><text x="${pl - 6}" y="${y(v) + 4}" text-anchor="end">${kfmt(v)}</text>`; }
   const line = k => pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p[k]).toFixed(1)}`).join('');
-  g += `<path d="${line('nw')}L${x(pts.length - 1)},${y(lo0)}L${x(0)},${y(lo0)}Z" fill="var(--accent)" fill-opacity=".10"/>`;
-  g += `<path d="${line('liq')}" fill="none" stroke="var(--pos)" stroke-width="2" stroke-dasharray="4 3"/>`;
-  g += `<path d="${line('nw')}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>`;
-  pts.forEach((p, i) => { if (W > 420 || i % 2 === 1) g += `<text x="${x(i)}" y="${H - 6}" text-anchor="${i === 0 ? 'start' : i === pts.length - 1 ? 'end' : 'middle'}">${ymShort(p.m)}</text>`; g += `<circle cx="${x(i)}" cy="${y(p.nw)}" r="${i === pts.length - 1 ? 4.5 : 0}" fill="var(--accent)"><title>${ymLabel(p.m)} · ${money(p.nw)}</title></circle>`; });
+  g += `<path d="${line('nw')}L${x(pts.length - 1)},${y(lo0)}L${x(0)},${y(lo0)}Z" fill="var(--chart-out)" fill-opacity=".28"/>`;
+  g += `<path d="${line('liq')}" fill="none" stroke="var(--chart-in)" stroke-width="2.5" stroke-dasharray="5 4" stroke-linecap="round"/>`;
+  g += `<path d="${line('nw')}" fill="none" stroke="var(--bar)" stroke-width="2.5" stroke-linejoin="round"/>`;
+  pts.forEach((p, i) => { if (W > 420 || i % 2 === 1) g += `<text x="${x(i)}" y="${H - 6}" text-anchor="${i === 0 ? 'start' : i === pts.length - 1 ? 'end' : 'middle'}">${ymShort(p.m)}</text>`; g += `<circle cx="${x(i)}" cy="${y(p.nw)}" r="${i === pts.length - 1 ? 4.5 : 0}" fill="var(--bar)"><title>${ymLabel(p.m)} · ${money(p.nw)}</title></circle>`; });
   const last = pts[pts.length - 1];
   g += `<text x="${x(pts.length - 1) - 8}" y="${y(last.nw) - 10}" text-anchor="end" style="fill:var(--fg);font-weight:600">${money0(last.nw)}</text>`;
   return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Patrimonio netto degli ultimi 12 mesi">${g}</svg>`;
