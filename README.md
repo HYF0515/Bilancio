@@ -1,6 +1,6 @@
-# Bilancio Personale
+# Bubudex
 
-A personal finance web app (Italian UI) that installs on your phone like a normal app and syncs across devices through your own free Supabase database.
+Bubudex is a personal finance web app (Italian UI) that installs on your phone like a normal app and syncs across devices through your own free Supabase database.
 
 Modules: accounts, transactions, transfers between accounts (giroconti), CSV import from your bank, monthly budget per category, net worth and investment portfolio, savings goals, recurring income/expenses, CSV export and full JSON backup.
 

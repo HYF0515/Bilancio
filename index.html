@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Bilancio Personale</title>
+<title>Bubudex</title>
 <meta name="theme-color" content="#F3F4F7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0E1117" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="Bilancio">
+<meta name="apple-mobile-web-app-title" content="Bubudex">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -231,7 +231,7 @@ body.locked .app{grid-template-columns:minmax(0,1fr)}
 
 <div class="app">
   <aside class="side">
-    <div class="brand"><div class="brand-mark">b<i></i></div><b>Bilancio</b></div>
+    <div class="brand"><div class="brand-mark">b<i></i></div><b>Bubudex</b></div>
     <nav class="nav" id="nav" aria-label="Sezioni"></nav>
     <div class="side-foot"><span class="sync" id="sync"><i></i><span>Sincronizzato</span></span><span>Dati privati, visibili solo a te.</span></div>
   </aside>
@@ -1404,13 +1404,13 @@ function exportCSV() {
   download(`movimenti-${todayISO()}.csv`, '﻿' + lines.join('\r\n'), 'text/csv;charset=utf-8');
 }
 function backup() {
-  download(`bilancio-backup-${todayISO()}.json`, JSON.stringify({ app: 'bilancio', version: 1, exportedAt: new Date().toISOString(), data: snapshotDocs() }, null, 1), 'application/json');
+  download(`bubudex-backup-${todayISO()}.json`, JSON.stringify({ app: 'bilancio', version: 1, exportedAt: new Date().toISOString(), data: snapshotDocs() }, null, 1), 'application/json');
 }
 function restore(file) {
   const r = new FileReader();
   r.onload = () => {
     let j; try { j = JSON.parse(r.result); } catch (e) { toast('Il file non è un backup valido.', true); return; }
-    if (!j || j.app !== 'bilancio' || !j.data) { toast('Il file non è un backup di Bilancio.', true); return; }
+    if (!j || j.app !== 'bilancio' || !j.data) { toast('Il file non è un backup di Bubudex.', true); return; }
     let n = 0;
     for (const c of [...COLS, 'settings']) for (const [id, d] of Object.entries(j.data[c] || {})) { if (d && typeof d === 'object') { put(c, id, d); n++; } }
     toast(`Ripristinati ${n} elementi`);
@@ -1527,7 +1527,7 @@ function getConfig() {
   const c = window.BILANCIO_CONFIG || {}, l = LS.get('bilancio.config', {});
   return { url: (c.supabaseUrl || l.url || '').trim(), key: (c.supabaseKey || l.key || '').trim(), fromFile: !!(c.supabaseUrl && c.supabaseKey) };
 }
-const brandHTML = `<div class="brand"><div class="brand-mark">b<i></i></div><b>Bilancio</b></div>`;
+const brandHTML = `<div class="brand"><div class="brand-mark">b<i></i></div><b>Bubudex</b></div>`;
 function setupView() {
   return `<div class="auth">${brandHTML}<h1>Collega il database</h1>
   <p class="muted" style="margin:0">Una sola volta per dispositivo. Trovi i due valori su supabase.com, nel tuo progetto: <b>Project Settings → API</b>.</p>
