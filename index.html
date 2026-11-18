@@ -964,7 +964,8 @@ VIEWS.patrimonio = () => {
   const accs = activeAccounts();
   const byClass = {};
   S.holdings.forEach(h => byClass[h.assetClass || 'Altro'] = (byClass[h.assetClass || 'Altro'] || 0) + holdingValue(h));
-  const alloc = [{ k: 'Liquidità sui conti', v: Math.max(0, liquid), c: '#86745F' }, ...Object.entries(byClass).map(([k, v], i) => ({ k, v, c: PALETTE[i % PALETTE.length] }))].filter(x => x.v > 0);
+  const ALLOC_C = { 'Azioni': '#C3C7F4', 'ETF': '#AED6F1', 'Obbligazioni': '#A8E0D4', 'Fondi': '#D9B8F0', 'Liquidità': '#FDF1A6', 'Crypto': '#FFD6A5', 'Immobili': '#F7B7C3', 'Altro': '#B8E2E8' };
+  const alloc = [{ k: 'Liquidità sui conti', v: Math.max(0, liquid), c: '#E8CFB0' }, ...Object.entries(byClass).map(([k, v], i) => ({ k, v, c: ALLOC_C[k] || MACARON[i % MACARON.length] }))].filter(x => x.v > 0);
   const allocT = alloc.reduce((s, x) => s + x.v, 0) || 1;
   const hs = [...S.holdings].sort((a, b) => holdingValue(b) - holdingValue(a));
   return `
