@@ -191,7 +191,7 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--surface-2)}
 .more-link:hover,.more-link[aria-current="page"]{background:var(--accent-soft);color:var(--accent)}
 .checks{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px 14px}
 .form-h{font-family:var(--f-display);font-weight:700;font-size:1rem;padding-top:6px;border-top:1px solid var(--line)}
-@media (max-width:760px){ .nav{overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity} .nav::-webkit-scrollbar{display:none} .nav a{flex:0 0 auto!important;min-width:68px;padding:6px 6px!important;font-size:.66rem!important;scroll-snap-align:start} }
+@media (max-width:760px){ .nav a{flex:1 1 0!important;min-width:0;padding:12px 0!important;justify-content:center;align-items:center} .nav a span{display:none} .nav a svg{width:24px!important;height:24px!important} }
 body.locked .side,body.locked .fab{display:none!important}
 body.locked .app{grid-template-columns:minmax(0,1fr)}
 .skel{color:var(--muted);padding:40px 0;text-align:center}
@@ -466,9 +466,8 @@ const navIcon = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
 function renderNav() {
   const r = route();
   $('#nav').innerHTML = Object.keys(ROUTES).map(k =>
-    `<a href="#${k}" class="${MORE_ROUTES.includes(k) ? 'more' : ''}" ${k === r ? 'aria-current="page"' : ''}>${navIcon(k)}<span>${esc(routeLabel(k))}</span></a>`).join('')
+    `<a href="#${k}" class="${MORE_ROUTES.includes(k) ? 'more' : ''}" ${k === r ? 'aria-current="page"' : ''} aria-label="${esc(routeLabel(k))}" title="${esc(routeLabel(k))}">${navIcon(k)}<span>${esc(routeLabel(k))}</span></a>`).join('')
 ;
-  if (innerWidth <= 760) { const cur = $('#nav a[aria-current="page"]'); if (cur) cur.scrollIntoView({ block: 'nearest', inline: 'center' }); }
 }
 
 /* ---------- render ---------- */
