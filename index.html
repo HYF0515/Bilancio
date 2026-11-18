@@ -292,6 +292,7 @@ body.locked .app{grid-template-columns:minmax(0,1fr)}
 .hero-nw{font-size:1.9rem}
 .hero-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .hero-tiles.t4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.hero-tiles.t2{grid-template-columns:repeat(2,minmax(0,1fr))}
 .hero .tag{white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
 .hero .tag.neu{background:var(--surface-2);color:var(--muted)}
 .hero-bar{display:flex;flex-direction:column;gap:6px}.hero-bar-l{display:flex;justify-content:space-between;font-size:.78rem;color:var(--hero-muted)}
@@ -400,7 +401,7 @@ html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
 <script>
 (() => {
 "use strict";
-const APP_VERSION = '54';
+const APP_VERSION = '55';
 /* ---------- utilità ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -900,7 +901,7 @@ const VIEWS = {};
 function heroCard(label, big, tiles, extra = '', bigCls = '') {
   return `<section class="hero privacy">
     <div class="hero-top"><span class="eyebrow">${label}</span><span class="v num hero-nw ${bigCls}">${big}</span></div>
-    <div class="hero-tiles ${tiles.length === 4 ? 't4' : ''}">${tiles.map(([l, c, v, vc]) => `<div class="hero-tile"><span class="tag ${c}">${l}</span><span class="v num ${vc || ''}">${v}</span></div>`).join('')}</div>${extra}</section>`;
+    <div class="hero-tiles ${tiles.length === 4 ? 't4' : tiles.length === 2 ? 't2' : ''}">${tiles.map(([l, c, v, vc]) => `<div class="hero-tile"><span class="tag ${c}">${l}</span><span class="v num ${vc || ''}">${v}</span></div>`).join('')}</div>${extra}</section>`;
 }
 function heroSummary(nw, inc, out, net) {
   return heroCard('Patrimonio netto', money0(nw), [['Entrate', 'in', money0(inc), 'pos'], ['Uscite', 'out', money0(out), 'neg'], ['Risparmio', 'sav', money0(net), net < 0 ? 'neg' : '']]);
@@ -932,12 +933,11 @@ function monthBudgetCard(ym, st) {
 }
 VIEWS.mensile = () => {
   const ym = S.ui.month, st = monthStats(ym);
-  const nw = sumObj(balances()) + investTotal();
   const recent = sortTx(S.transactions).slice(0, 7);
   return `
   <div class="head with-nav"><div><div class="eyebrow"><span class="lbl-long">Situazione mensile</span><span class="lbl-short">Mensile</span></div><h1>${ymLabel(ym)}</h1></div>
     <div class="head-actions">${eyeBtn()}${monthNav('month')}<button class="btn primary hide-m" data-act="new-tx">+ Movimento</button></div></div>
-  ${heroSummary(nw, st.inc, st.exp, st.net)}
+  ${heroCard('Risparmio del mese', money0(st.net), [['Entrate', 'in', money0(st.inc), 'pos'], ['Uscite', 'out', money0(st.exp), 'neg']], '', st.net < 0 ? 'neg' : '')}
   ${monthBudgetCard(ym, st)}
   <div class="grid g-2">
     <section class="panel"><div class="panel-h"><h2>Spese per categoria</h2><a class="btn small ghost" href="#budget">Budget →</a></div>
