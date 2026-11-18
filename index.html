@@ -316,7 +316,7 @@ function nextDate(iso, f) {
 /* ---------- stato ---------- */
 const COLS = ['accounts', 'categories', 'transactions', 'holdings', 'goals', 'recurring', 'snapshots', 'properties'];
 const S = { sb: null, user: null, synced: false, status: 'loading', settings: {},
-  ui: { propId: '', fProp: '', propYear: todayISO().slice(0, 4), year: todayISO().slice(0, 4), month: ymOf(todayISO()), q: '', fAcc: '', fCat: '', fKind: '', budgetMonth: ymOf(todayISO()) } };
+  ui: { budgetMode: 'mese', budgetYear: todayISO().slice(0, 4), propId: '', fProp: '', propYear: todayISO().slice(0, 4), year: todayISO().slice(0, 4), month: ymOf(todayISO()), q: '', fAcc: '', fCat: '', fKind: '', budgetMonth: ymOf(todayISO()) } };
 COLS.forEach(c => S[c] = []);
 const byId = (col, id) => S[col].find(x => x.id === id);
 const cat = id => byId('categories', id);
@@ -843,8 +843,9 @@ function moreMenu() {
 /* ---------- resoconto annuale vs budget ---------- */
 function yearBudget(year) {
   const budgets = S.settings.budgets || {};
-  const bIds = Object.keys(budgets).filter(id => +budgets[id] > 0 && cat(id));
-  const monthlyB = bIds.reduce((s, id) => s + +budgets[id], 0);
+  const bIds = S.categories.filter(c => c.kind === 'spesa' && annualBudget(c.id) > 0).map(c => c.id);
+  const ann = Object.fromEntries(bIds.map(id => [id, annualBudget(id)]));
+  const monthlyB = bIds.reduce((s, id) => s + ann[id], 0) / 12;
   const today = todayISO(), cy = today.slice(0, 4);
   const elapsed = year < cy ? 12 : year > cy ? 0 : +today.slice(5, 7);
   const frac = year === cy ? (elapsed - 1) + new Date().getDate() / new Date(+year, elapsed, 0).getDate() : elapsed;
@@ -857,15 +858,15 @@ function yearBudget(year) {
     else other += v;
   }
   const spent = sumObj(byCat);
-  return { year, budgets, bIds, monthlyB, elapsed, frac, byCat, byMonth, other, spent, ytdB: monthlyB * elapsed, yearB: monthlyB * 12, proj: frac > 0 ? spent / frac * 12 : 0, isCur: year === cy };
+  return { year, budgets, ann, bIds, monthlyB, elapsed, frac, byCat, byMonth, other, spent, ytdB: monthlyB * elapsed, yearB: monthlyB * 12, proj: frac > 0 ? spent / frac * 12 : 0, isCur: year === cy };
 }
 function yearBudgetPanel(year) {
   const y = yearBudget(year);
-  const head = `<div class="panel-h"><div><h2>Resoconto ${year} vs budget</h2><span class="muted" style="font-size:.82rem">Budget mensile × mesi trascorsi${y.isCur ? `, fino a ${MESI[y.elapsed - 1].toLowerCase()}` : ''}</span></div><a class="btn small ghost" href="#budget">Modifica budget →</a></div>`;
+  const head = `<div class="panel-h"><div><h2>Resoconto ${year} vs budget</h2><span class="muted" style="font-size:.82rem">Budget annuale in proporzione ai mesi trascorsi${y.isCur ? `, fino a ${MESI[y.elapsed - 1].toLowerCase()}` : ''}</span></div><a class="btn small ghost" href="#budget">Modifica budget →</a></div>`;
   if (!y.bIds.length) return `<section class="panel">${head}<div class="empty"><p>Imposta un budget mensile per categoria per vedere come stai andando nell'anno.</p><a class="btn" href="#budget">Imposta il budget</a></div></section>`;
   if (!y.elapsed) return `<section class="panel">${head}<p class="muted" style="margin:0">Il ${year} non è ancora iniziato. Budget previsto per l'anno: <b class="num">${money0(y.yearB)}</b>.</p></section>`;
   const diff = y.ytdB - y.spent;
-  const rows = y.bIds.map(id => ({ c: cat(id), s: y.byCat[id] || 0, b: +y.budgets[id] * y.elapsed })).sort((a, b) => (b.s / b.b) - (a.s / a.b));
+  const rows = y.bIds.map(id => ({ c: cat(id), s: y.byCat[id] || 0, b: y.ann[id] * y.elapsed / 12 })).sort((a, b) => (b.s / b.b) - (a.s / a.b));
   const projTile = y.isCur
     ? `<div class="kpi"><span class="eyebrow">Proiezione a fine anno</span><span class="v num ${y.proj > y.yearB ? 'neg' : ''}">${money0(y.proj)}</span><span class="s">su un budget annuo di ${money0(y.yearB)}</span></div>`
     : `<div class="kpi"><span class="eyebrow">Utilizzo del budget</span><span class="v num ${y.spent > y.yearB ? 'neg' : ''}">${pct(y.spent / y.yearB)}</span><span class="s">Budget annuo ${money0(y.yearB)}</span></div>`;
@@ -935,7 +936,42 @@ function txListFiltered() {
   return `<div class="panel-h"><h2>${l.length} moviment${l.length === 1 ? 'o' : 'i'}</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="pill pos num">+${money(inc)}</span><span class="pill num">−${money(exp)}</span></div></div>${txList(l.slice(0, 400))}${l.length > 400 ? `<p class="muted">Mostrati i primi 400. Restringi i filtri per vedere gli altri.</p>` : ''}`;
 }
 
+function annualBudget(id) {
+  const yb = S.settings.budgetsYear || {}, mb = S.settings.budgets || {};
+  return +yb[id] > 0 ? +yb[id] : (+mb[id] > 0 ? +mb[id] * 12 : 0);
+}
+const budgetModeSeg = () => `<div class="seg" role="group" aria-label="Tipo di budget" style="min-width:210px"><button type="button" data-act="budget-mode" data-v="mese" aria-pressed="${S.ui.budgetMode !== 'anno'}">Mensile</button><button type="button" data-act="budget-mode" data-v="anno" aria-pressed="${S.ui.budgetMode === 'anno'}">Annuale</button></div>`;
+function budgetYearView() {
+  const year = S.ui.budgetYear, y = yearBudget(year), cats = catsOf('spesa');
+  const yb = S.settings.budgetsYear || {}, mb = S.settings.budgets || {};
+  const spentAll = {};
+  for (const t of S.transactions) if (t.kind === 'spesa' && String(t.date).startsWith(year)) spentAll[t.categoryId] = (spentAll[t.categoryId] || 0) + (+t.amount || 0);
+  const totB = y.yearB, totS = y.spent, left = totB - totS;
+  const rows = cats.map(c => {
+    const own = +yb[c.id] > 0, b = annualBudget(c.id), s = spentAll[c.id] || 0, r = b ? s / b : 0;
+    const expected = b * y.elapsed / 12;
+    const cls = b && r > 1 ? 'over' : b && s > expected * 1.05 && y.isCur ? 'near' : '';
+    const sub = own ? `<small class="muted" style="display:block;font-size:.75rem">Budget annuale dedicato${+mb[c.id] ? ` · mensile ${money0(+mb[c.id])}` : ''}</small>` : (+mb[c.id] ? `<small class="muted" style="display:block;font-size:.75rem">Da budget mensile: 12 × ${money0(+mb[c.id])}</small>` : '');
+    return `<tr><td><div class="catname"><i class="dot" style="background:${esc(c.color)}"></i><span>${esc(c.name)}</span></div>${sub}
+      <div class="bar ${cls}" style="margin-top:8px"><i style="width:${Math.min(100, r * 100).toFixed(1)}%"></i></div></td>
+      <td class="r" style="width:160px"><input class="input num" style="text-align:right" id="by-${esc(c.id)}" data-budget-year="${esc(c.id)}" inputmode="decimal" placeholder="${+mb[c.id] ? String(+mb[c.id] * 12).replace('.', ',') : '—'}" value="${own ? String(+yb[c.id]).replace('.', ',') : ''}" aria-label="Budget annuale ${esc(c.name)}"></td>
+      <td class="r num">${money0(s)}${b ? `<br><span class="muted" style="font-size:.78rem">${pct(r)}</span>` : ''}</td>
+      <td class="r num ${b && b - s < 0 ? 'neg' : ''}">${b ? money0(b - s) : '<span class="muted">—</span>'}</td></tr>`;
+  }).join('');
+  return `
+  <div class="head"><div><div class="eyebrow">Budget annuale</div><h1>Anno ${year}</h1></div><div class="head-actions">${budgetModeSeg()}<div class="month-nav"><button class="icon-btn" data-act="ykey" data-key="budgetYear" data-d="-1" aria-label="Anno precedente">‹</button><span>${year}</span><button class="icon-btn" data-act="ykey" data-key="budgetYear" data-d="1" aria-label="Anno successivo">›</button></div></div></div>
+  <section class="kpis">
+    <div class="kpi"><span class="eyebrow">Budget annuale</span><span class="v num">${money0(totB)}</span><span class="s">${money0(totB / 12)} al mese in media</span></div>
+    <div class="kpi"><span class="eyebrow">Speso nel ${year}</span><span class="v num">${money0(totS)}</span><span class="s">${totB ? pct(totS / totB) + ' del budget annuale' : 'Imposta un budget'}</span></div>
+    <div class="kpi"><span class="eyebrow">Disponibile</span><span class="v num ${left < 0 ? 'neg' : 'pos'}">${money0(left)}</span><span class="s">${y.isCur ? `${12 - y.elapsed} mes${12 - y.elapsed === 1 ? 'e' : 'i'} dopo questo · ${money0(Math.max(0, left) / Math.max(1, 13 - y.elapsed))}/mese` : (y.elapsed ? 'Anno chiuso' : 'Anno non iniziato')}</span></div>
+    <div class="kpi"><span class="eyebrow">Proiezione a fine anno</span><span class="v num ${totB && y.proj > totB ? 'neg' : ''}">${y.isCur ? money0(y.proj) : money0(totS)}</span><span class="s">${y.isCur ? 'Al ritmo di spesa attuale' : 'Spesa effettiva'}</span></div>
+  </section>
+  <section class="panel"><div class="panel-h"><div><h2>Per categoria</h2><span class="muted" style="font-size:.82rem">Se non inserisci un budget annuale uso 12 × il budget mensile. Utile per spese irregolari come viaggi, assicurazioni, tasse.</span></div><span class="muted" style="font-size:.85rem">Scrivi un importo e premi Invio</span></div>
+    ${cats.length ? `<div class="tbl-wrap"><table><thead><tr><th>Categoria</th><th class="r">Budget annuale</th><th class="r">Speso</th><th class="r">Residuo</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty"><p>Crea prima le categorie di spesa nelle impostazioni.</p></div>`}
+  </section>`;
+}
 VIEWS.budget = () => {
+  if (S.ui.budgetMode === 'anno') return budgetYearView();
   const ym = S.ui.budgetMonth, st = monthStats(ym), budgets = S.settings.budgets || {};
   const cats = catsOf('spesa');
   const totB = cats.reduce((s, c) => s + (+budgets[c.id] || 0), 0), totS = cats.reduce((s, c) => s + (st.byCat[c.id] || 0), 0);
@@ -945,14 +981,14 @@ VIEWS.budget = () => {
   const rows = cats.map(c => {
     const b = +budgets[c.id] || 0, s = st.byCat[c.id] || 0, r = b ? s / b : 0;
     const cls = b && r > 1 ? 'over' : b && r >= .8 ? 'near' : '';
-    return `<tr><td><div class="catname"><i class="dot" style="background:${esc(c.color)}"></i><span>${esc(c.name)}</span></div>
+    return `<tr><td><div class="catname"><i class="dot" style="background:${esc(c.color)}"></i><span>${esc(c.name)}</span></div>${+(S.settings.budgetsYear || {})[c.id] ? `<small class="muted" style="display:block;font-size:.75rem">Budget annuale ${money0(+S.settings.budgetsYear[c.id])}</small>` : ''}
       <div class="bar ${cls}" style="margin-top:8px"><i style="width:${Math.min(100, r * 100).toFixed(1)}%"></i></div></td>
       <td class="r" style="width:150px"><input class="input num" style="text-align:right" id="b-${esc(c.id)}" data-budget="${esc(c.id)}" inputmode="decimal" placeholder="—" value="${b ? String(b).replace('.', ',') : ''}" aria-label="Budget ${esc(c.name)}"></td>
       <td class="r num">${money(s)}</td>
       <td class="r num ${b && b - s < 0 ? 'neg' : ''}">${b ? money(b - s) : '<span class="muted">—</span>'}</td></tr>`;
   }).join('');
   return `
-  <div class="head"><div><div class="eyebrow">Budget mensile</div><h1>${ymLabel(ym)}</h1></div><div class="head-actions">${monthNav('budgetMonth')}</div></div>
+  <div class="head"><div><div class="eyebrow">Budget mensile</div><h1>${ymLabel(ym)}</h1></div><div class="head-actions">${budgetModeSeg()}${monthNav('budgetMonth')}</div></div>
   <section class="kpis">
     <div class="kpi"><span class="eyebrow">Budget totale</span><span class="v num">${money0(totB)}</span><span class="s">Valido per ogni mese</span></div>
     <div class="kpi"><span class="eyebrow">Speso</span><span class="v num">${money0(totS)}</span><span class="s">${totB ? pct(totS / totB) + ' del budget' : 'Imposta un budget per categoria'}</span></div>
@@ -1544,6 +1580,8 @@ document.addEventListener('click', e => {
   if (a === 'fx-refresh') return fxRefresh(true);
   if (a === 'fx-edit') return rateForm(t.dataset.cur);
   if (a === 'fx-add') return openForm({ title: 'Aggiungi una valuta', fields: [{ id: 'cur', label: 'Valuta', type: 'select', options: curOptions().filter(o => o.v !== BASE) }], async onSubmit(v) { setTimeout(() => rateForm(v.cur), 0); return true; } });
+  if (a === 'budget-mode') { S.ui.budgetMode = t.dataset.v; render(); return; }
+  if (a === 'ykey') { S.ui[t.dataset.key] = String(+S.ui[t.dataset.key] + +t.dataset.d); render(); return; }
   if (a === 'year') { S.ui.year = String(+S.ui.year + +t.dataset.d); render(); return; }
   if (a === 'month') { S.ui[t.dataset.key] = addMonths(S.ui[t.dataset.key], +t.dataset.d); render(); return; }
   if (a === 'new-tx') return txForm();
@@ -1578,7 +1616,7 @@ document.addEventListener('click', e => {
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && !$('#modal').hidden) closeModal();
   if (e.key === 'Enter' && e.target.matches('.tx[role=button]')) e.target.click();
-  if (e.key === 'Enter' && e.target.matches('[data-budget]')) e.target.blur();
+  if (e.key === 'Enter' && e.target.matches('[data-budget],[data-budget-year]')) e.target.blur();
 });
 $('#modal').addEventListener('mousedown', e => { if (e.target.id === 'modal') closeModal(); });
 let qT;
@@ -1593,6 +1631,14 @@ document.addEventListener('change', async e => {
   else if (el.id === 'f-prop') { S.ui.fProp = el.value; $('#txlist').innerHTML = txListFiltered(); }
   else if (el.id === 'f-kind') { S.ui.fKind = el.value; $('#txlist').innerHTML = txListFiltered(); }
   else if (el.id === 'f-all') { S.ui.allMonths = el.checked; $('#txlist').innerHTML = txListFiltered(); }
+  else if (el.dataset.budgetYear) {
+    const v = el.value.trim() === '' ? 0 : parseNum(el.value);
+    if (isNaN(v) || v < 0) { toast('Inserisci un importo valido.', true); return; }
+    const by = { ...(S.settings.budgetsYear || {}) };
+    if ((+by[el.dataset.budgetYear] || 0) === v) return;
+    if (v) by[el.dataset.budgetYear] = v; else delete by[el.dataset.budgetYear];
+    if (await saveSettings({ budgetsYear: by })) toast(v ? 'Budget annuale aggiornato' : 'Budget annuale rimosso: uso 12 × il mensile');
+  }
   else if (el.dataset.budget) {
     const v = el.value.trim() === '' ? 0 : parseNum(el.value);
     if (isNaN(v) || v < 0) { toast('Inserisci un importo valido.', true); return; }
