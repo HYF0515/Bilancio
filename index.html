@@ -393,7 +393,7 @@ html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
 <script>
 (() => {
 "use strict";
-const APP_VERSION = '51';
+const APP_VERSION = '52';
 /* ---------- utilità ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -987,7 +987,7 @@ function mortgageStats(pr) {
 VIEWS.proprieta = () => {
   const list = propsSorted(), pr = curProp();
   if (!pr) return `<div class="head with-nav"><div><div class="eyebrow">Proprietà</div><h1>Le tue proprietà</h1></div></div>
-    <section class="panel empty"><h2>Aggiungi la tua prima proprietà</h2><p>Per esempio la casa di Milano o quella di Beausoleil. Quando registri una spesa (luce, condominio, rata del mutuo…) potrai scegliere a quale proprietà si riferisce, e qui vedrai mutuo pagato, debito residuo e spese di ciascuna.</p><button class="btn primary" data-act="new-prop">+ Aggiungi proprietà</button></section>`;
+    <section class="panel empty"><h2>Aggiungi la tua prima proprietà</h2><p>Per esempio la casa in città o quella al mare. Quando registri una spesa (luce, condominio, rata del mutuo…) potrai scegliere a quale proprietà si riferisce, e qui vedrai mutuo pagato, debito residuo e spese di ciascuna.</p><button class="btn primary" data-act="new-prop">+ Aggiungi proprietà</button></section>`;
   const tabs = `<div class="prop-tabs" role="tablist" aria-label="Proprietà">${list.map(p => `<button class="prop-tab" role="tab" aria-selected="${p.id === pr.id}" data-act="prop-sel" data-id="${esc(p.id)}">${esc(p.name)}</button>`).join('')}<button class="prop-tab add" data-act="new-prop">+ Aggiungi</button></div>`;
   const ms = mortgageStats(pr), year = S.ui.propYear, mcat = pr.mortgage?.categoryId || '';
   const all = S.transactions.filter(t => t.propertyId === pr.id && t.kind !== 'giroconto');
@@ -1047,14 +1047,14 @@ VIEWS.proprieta = () => {
   return (head + summary + mortHTML + spese + othersHTML + valueHTML).replace(/<span class="s">[\s\S]*?<\/span>/g, '');
 };
 function propForm(pr) {
-  const isNew = !pr; pr = pr || { name: S.properties.length ? '' : 'Marzabotto 14' };
+  const isNew = !pr; pr = pr || { name: '' };
   const m = pr.mortgage || {};
   const linked = !isNew && S.transactions.some(t => t.propertyId === pr.id);
   openForm({
     title: isNew ? 'Nuova proprietà' : 'Dati di ' + pr.name, wide: true,
     intro: `<p class="muted" style="margin:0;font-size:.88rem">Compila quello che sai: puoi aggiornare questi dati in qualsiasi momento. Se l'immobile non ha un mutuo, lascia vuota quella parte.</p>`,
     fields: [
-      [{ id: 'name', label: 'Nome', value: pr.name || '', placeholder: 'Es. Casa Milano, Beausoleil', required: true }, { id: 'address', label: 'Indirizzo (facoltativo)', value: pr.address || '' }],
+      [{ id: 'name', label: 'Nome', value: pr.name || '', placeholder: 'Es. Casa in città, Casa al mare', required: true }, { id: 'address', label: 'Indirizzo (facoltativo)', value: pr.address || '' }],
       [{ id: 'purchasePrice', label: 'Prezzo d\'acquisto (€)', num: true, value: pr.purchasePrice ?? '' }, { id: 'purchaseDate', label: 'Data d\'acquisto', type: 'date', value: pr.purchaseDate || '' }],
       [{ id: 'currentValue', label: 'Valore stimato oggi (€)', num: true, value: pr.currentValue ?? '' }, { id: 'valueDate', label: 'Data della stima', type: 'date', value: pr.valueDate || todayISO() }],
       { id: 'h-m', type: 'heading', label: 'Mutuo' },
