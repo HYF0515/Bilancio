@@ -1112,7 +1112,7 @@ VIEWS.impostazioni = () => {
       <div class="list-row"><div class="l"><span class="muted">Accesso come</span></div><b style="overflow:hidden;text-overflow:ellipsis">${esc(S.user?.email || '')}</b></div>
       <div class="list-row"><div class="l"><span class="muted">Database</span></div><span>Firebase · ${esc(getConfig().projectId || '')}</span></div>
       <div class="list-row"><div class="l"><span class="muted">Stato</span></div><span>${netDown ? (pendingWrites ? 'Offline · modifiche in attesa' : 'Offline') : pendingWrites ? 'Sincronizzazione in corso' : 'Sincronizzato'}</span></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn" data-act="sync-now">Sincronizza ora</button><button class="btn danger" data-act="logout">Esci</button></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn" data-act="set-pass">${firebase.auth().currentUser?.providerData.some(p => p.providerId === 'password') ? 'Cambia password' : 'Imposta password per il telefono'}</button><button class="btn" data-act="sync-now">Sincronizza ora</button><button class="btn danger" data-act="logout">Esci</button></div>
     </section>
   </div>`;
 };
@@ -1716,6 +1716,7 @@ document.addEventListener('click', e => {
   if (a === 'logout') return logout(t);
   if (a === 'signup') return authSubmit('signup');
   if (a === 'google') return googleLogin();
+  if (a === 'set-pass') return setPassword();
   if (a === 'email-login') { const f = $('#auth-form'); if (f) { f.hidden = false; t.hidden = true; } return; }
   if (a === 'reset-pass') return resetPass();
   if (a === 'reset-config') { LS.del('bubudex.firebase'); location.reload(); }
@@ -1820,8 +1821,9 @@ function authView() {
   <div class="panel" style="display:flex;flex-direction:column;gap:12px">
     <button class="btn primary" type="button" data-act="google" style="padding:12px"><svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>Accedi con Google</button>
     <div class="form-err" id="g-err" hidden></div>
-    <button class="btn ghost small" type="button" data-act="email-login">Accedi con email e password</button>
-    <form id="auth-form" style="display:flex;flex-direction:column;gap:12px" novalidate hidden>
+    ${isIOS() ? `<p class="muted" style="margin:0;font-size:.85rem">Su iPhone, se l'accesso con Google non funziona, usa email e password. La password la imposti una volta dal computer in Impostazioni → Account e sincronizzazione.</p>` : ''}
+    <button class="btn ghost small" type="button" data-act="email-login" ${isIOS() ? 'hidden' : ''}>Accedi con email e password</button>
+    <form id="auth-form" style="display:flex;flex-direction:column;gap:12px" novalidate ${isIOS() ? '' : 'hidden'}>
       <div class="field"><label for="au-email">Email</label><input class="input" id="au-email" type="email" autocomplete="username" autocapitalize="off"></div>
       <div class="field"><label for="au-pass">Password</label><input class="input" id="au-pass" type="password" autocomplete="current-password" minlength="8"></div>
       <div class="form-err" id="au-err" hidden></div>
@@ -1833,16 +1835,46 @@ function authView() {
   ${cfg.fromFile ? '' : `<button class="btn ghost small" data-act="reset-config" style="align-self:center">Cambia progetto Firebase</button>`}</div>`;
 }
 const isStandalone = () => (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 async function googleLogin() {
   const err = $('#g-err'); if (err) err.hidden = true;
   const prov = new firebase.auth.GoogleAuthProvider(); prov.setCustomParameters({ prompt: 'select_account' });
   try { await firebase.auth().signInWithPopup(prov); }
   catch (e) {
     const c = String(e.code || '');
-    if (c.includes('popup-blocked') || c.includes('operation-not-supported') || (isStandalone() && c.includes('popup'))) { try { await firebase.auth().signInWithRedirect(prov); return; } catch (e2) { e = e2; } }
     if (c.includes('popup-closed') || c.includes('cancelled-popup')) return;
-    if (err) { err.textContent = c.includes('unauthorized-domain') ? 'Questo indirizzo non è autorizzato: in Firebase aggiungi hyf0515.github.io in Authentication → Impostazioni → Domini autorizzati.' : c.includes('operation-not-allowed') ? 'L\'accesso con Google non è attivo: abilitalo in Firebase → Authentication → Metodo di accesso.' : 'Accesso non riuscito: ' + (e.message || c); err.hidden = false; }
+    const tip = 'Sul telefono usa "Accedi con email e password": la password la imposti una volta dal computer in Impostazioni → Account.';
+    if (err) {
+      err.textContent = c.includes('unauthorized-domain') ? 'Questo indirizzo non è autorizzato: in Firebase aggiungi hyf0515.github.io in Authentication → Impostazioni → Domini autorizzati.'
+        : c.includes('operation-not-allowed') ? 'L\'accesso con Google non è attivo: abilitalo in Firebase → Authentication → Metodo di accesso.'
+        : c.includes('popup-blocked') || c.includes('operation-not-supported') || c.includes('web-storage') ? 'Il browser ha bloccato la finestra di Google. ' + tip
+        : 'Accesso con Google non riuscito. ' + tip;
+      err.hidden = false;
+    }
+    const f = $('#auth-form'), b = $('[data-act="email-login"]'); if (f) f.hidden = false; if (b) b.hidden = true;
   }
+}
+async function setPassword() {
+  const u = firebase.auth().currentUser; if (!u) return;
+  const hasPwd = u.providerData.some(p => p.providerId === 'password');
+  openForm({
+    title: hasPwd ? 'Cambia la password' : 'Password per il telefono',
+    intro: `<p class="muted" style="margin:0;font-size:.88rem">Sul telefono (soprattutto iPhone) l'accesso con Google può essere bloccato. Imposta una password per questo stesso account: sul telefono scegli <b>"Accedi con email e password"</b> con <b>${esc(u.email || '')}</b> e ritrovi tutti i tuoi dati.</p>`,
+    fields: [{ id: 'p1', label: 'Nuova password (almeno 8 caratteri)', type: 'password' }, { id: 'p2', label: 'Ripeti la password', type: 'password' }],
+    validate: v => v.p1.length < 8 ? 'Usa almeno 8 caratteri.' : v.p1 !== v.p2 ? 'Le due password non coincidono.' : '',
+    async onSubmit(v) {
+      const run = () => hasPwd ? u.updatePassword(v.p1) : u.linkWithCredential(firebase.auth.EmailAuthProvider.credential(u.email, v.p1));
+      try { await run(); }
+      catch (e) {
+        const c = String(e.code || '');
+        if (c.includes('requires-recent-login')) { try { await u.reauthenticateWithPopup(new firebase.auth.GoogleAuthProvider()); await run(); } catch (e2) { toast('Conferma non riuscita: ' + (e2.message || e2.code), true); return false; } }
+        else if (c.includes('operation-not-allowed')) { toast('Attiva prima "Email/password" in Firebase → Authentication → Metodo di accesso.', true); return false; }
+        else if (c.includes('weak-password')) { toast('Password troppo debole: usane una più lunga.', true); return false; }
+        else { toast('Non riuscito: ' + (e.message || c), true); return false; }
+      }
+      toast('Password impostata: ora puoi accedere anche dal telefono'); schedule(); return true;
+    }
+  });
 }
 async function authSubmit(mode) {
   const email = $('#au-email').value.trim(), pass = $('#au-pass').value, err = $('#au-err'), msg = $('#au-msg');
@@ -1889,7 +1921,6 @@ async function boot() {
   firebase.initializeApp(conf);
   S.fs = firebase.firestore();
   try { await S.fs.enablePersistence({ synchronizeTabs: true }); } catch (e) { /* un'altra scheda la usa già o il browser non la supporta */ }
-  firebase.auth().getRedirectResult().catch(e => { const el = $('#g-err'); if (el) { el.textContent = 'Accesso non riuscito: ' + (e.message || e.code); el.hidden = false; } });
   let first = true;
   firebase.auth().onAuthStateChanged(user => {
     if (user) startSession(user);
