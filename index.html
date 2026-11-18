@@ -320,18 +320,85 @@ const catsOf = kind => S.categories.filter(c => c.kind === kind).sort((a, b) => 
 const isDemo = () => [...COLS].some(c => S[c].some(x => x.demo));
 
 /* ---------- calcoli ---------- */
-function balances(upTo) {
+/* ---------- valute ---------- */
+// Tutti i totali sono in euro. Ogni movimento in un'altra valuta conserva importo e valuta originali (origAmount, currency)
+// e il cambio usato (rate = euro per 1 unità di valuta); "amount" è sempre il controvalore in euro.
+const BASE = 'EUR';
+const CURRENCIES = { EUR: 'Euro', USD: 'Dollaro USA', GBP: 'Sterlina britannica', CHF: 'Franco svizzero', JPY: 'Yen giapponese', CNY: 'Yuan cinese', HKD: 'Dollaro di Hong Kong', SGD: 'Dollaro di Singapore', AUD: 'Dollaro australiano', CAD: 'Dollaro canadese', SEK: 'Corona svedese', NOK: 'Corona norvegese', DKK: 'Corona danese', PLN: 'Złoty polacco', CZK: 'Corona ceca', HUF: 'Fiorino ungherese', RON: 'Leu rumeno', TRY: 'Lira turca', AED: 'Dirham EAU', THB: 'Baht thailandese', KRW: 'Won sudcoreano', INR: 'Rupia indiana', BRL: 'Real brasiliano', MXN: 'Peso messicano', ZAR: 'Rand sudafricano' };
+const curOptions = () => Object.entries(CURRENCIES).map(([v, l]) => ({ v, l: v + ' · ' + l }));
+const _cf = {};
+const moneyC = (v, cur = BASE, dec) => { const k = cur + '|' + dec; if (!_cf[k]) { try { _cf[k] = new Intl.NumberFormat('it-IT', { style: 'currency', currency: cur, ...(dec === 0 ? { maximumFractionDigits: 0 } : {}) }); } catch (e) { _cf[k] = { format: x => (+x).toFixed(2) + ' ' + cur }; } } return _cf[k].format(v || 0); };
+const accCur = id => acc(id)?.currency || BASE;
+const txCur = t => t.currency || BASE;
+const txOrig = t => t.origAmount != null ? +t.origAmount : +t.amount;
+S.fx = (() => { try { return JSON.parse(localStorage.getItem('bubudex.fx') || '{}'); } catch (e) { return {}; } })();
+function rateOf(cur) {
+  if (!cur || cur === BASE) return 1;
+  const s = S.settings.rates?.[cur], f = S.fx[cur];
+  const best = [s, f].filter(Boolean).sort((a, b) => String(b.date).localeCompare(String(a.date)))[0];
+  return best ? +best.rate : 0;
+}
+const FX_ONLINE = !(window.claude && window.claude.use);
+async function fxFetch(cur, date) {
+  if (!FX_ONLINE || !cur || cur === BASE) return null;
+  const day = !date || date >= todayISO() ? 'latest' : date;
+  try {
+    const r = await fetch(`https://api.frankfurter.app/${day}?from=${BASE}&to=${cur}`);
+    if (!r.ok) return null;
+    const j = await r.json(); const x = j?.rates?.[cur];
+    return x ? { rate: 1 / x, date: j.date } : null;
+  } catch (e) { return null; }
+}
+async function fxRefresh(force) {
+  if (!FX_ONLINE) return;
+  const curs = [...new Set([...S.accounts.map(a => a.currency), ...S.transactions.map(t => t.currency), ...Object.keys(S.settings.rates || {})].filter(c => c && c !== BASE))];
+  if (!curs.length) return;
+  const today = todayISO();
+  if (!force && curs.every(c => S.fx[c] && S.fx[c].checked === today)) return;
+  try {
+    const r = await fetch(`https://api.frankfurter.app/latest?from=${BASE}&to=${curs.join(',')}`);
+    if (!r.ok) return;
+    const j = await r.json();
+    for (const c of curs) if (j.rates?.[c]) S.fx[c] = { rate: 1 / j.rates[c], date: j.date, checked: today };
+    try { localStorage.setItem('bubudex.fx', JSON.stringify(S.fx)); } catch (e) {}
+    schedule();
+    if (force) toast('Cambi aggiornati (BCE, ' + dShort(j.date) + ')');
+  } catch (e) { if (force) toast('Non riesco a scaricare i cambi: controlla la connessione.', true); }
+}
+// valore di un movimento nella valuta di un conto
+function valIn(accountId, t) {
+  const cur = accCur(accountId);
+  if (txCur(t) === cur) return txOrig(t);
+  if (cur === BASE) return +t.amount || 0;
+  const r = rateOf(cur); return r ? (+t.amount || 0) / r : 0;
+}
+function balancesNative(upTo) {
   const b = {};
   S.accounts.forEach(a => b[a.id] = +a.openingBalance || 0);
   for (const t of S.transactions) {
     if (upTo && t.date > upTo) continue;
-    const v = +t.amount || 0;
-    if (t.kind === 'entrata') b[t.accountId] = (b[t.accountId] || 0) + v;
-    else if (t.kind === 'spesa') b[t.accountId] = (b[t.accountId] || 0) - v;
-    else if (t.kind === 'giroconto') { b[t.accountId] = (b[t.accountId] || 0) - v; b[t.toAccountId] = (b[t.toAccountId] || 0) + v; }
+    if (t.kind === 'entrata') b[t.accountId] = (b[t.accountId] || 0) + valIn(t.accountId, t);
+    else if (t.kind === 'spesa') b[t.accountId] = (b[t.accountId] || 0) - valIn(t.accountId, t);
+    else if (t.kind === 'giroconto') { b[t.accountId] = (b[t.accountId] || 0) - valIn(t.accountId, t); b[t.toAccountId] = (b[t.toAccountId] || 0) + (t.toAmount != null && txCur(t) !== accCur(t.toAccountId) && t.toCurrency === accCur(t.toAccountId) ? +t.toAmount : valIn(t.toAccountId, t)); }
   }
   return b;
 }
+function balances(upTo) {
+  const n = balancesNative(upTo), b = {};
+  for (const id of Object.keys(n)) { const cur = accCur(id); b[id] = cur === BASE ? n[id] : n[id] * rateOf(cur); }
+  return b;
+}
+function rateForm(cur) {
+  const r = S.settings.rates?.[cur];
+  openForm({
+    title: 'Cambio ' + cur,
+    intro: `<p class="muted" style="margin:0;font-size:.88rem">Serve per convertire in euro i saldi dei conti in ${esc(cur)}. ${FX_ONLINE ? 'Se lo lasci vuoto uso il cambio BCE scaricato automaticamente.' : 'Nella versione Claude i cambi non si scaricano da soli: inseriscilo tu.'}</p>`,
+    fields: [[{ id: 'rate', label: `1 ${cur} = ? €`, num: true, value: r?.rate ? +(+r.rate).toFixed(6) : '' }, { id: 'date', label: 'Aggiornato al', type: 'date', value: r?.date || todayISO() }]],
+    validate: v => v.rate && !(parseNum(v.rate) > 0) ? 'Inserisci un cambio maggiore di zero.' : '',
+    async onSubmit(v) { const rates = { ...(S.settings.rates || {}) }; if (v.rate) rates[cur] = { rate: parseNum(v.rate), date: v.date || todayISO() }; else delete rates[cur]; const ok = await saveSettings({ rates }); ok && toast('Cambio salvato'); return ok; }
+  });
+}
+
 const sumObj = o => Object.values(o).reduce((a, b) => a + b, 0);
 const holdingValue = h => (+h.quantity || 0) * (+h.price || 0);
 const holdingCost = h => (+h.quantity || 0) * (+h.avgCost || 0);
@@ -564,7 +631,7 @@ function txRow(t) {
   let title, sub, cls, sign;
   if (t.kind === 'giroconto') { title = t.note || 'Giroconto'; sub = `${a?.name || '?'} → ${acc(t.toAccountId)?.name || '?'}`; cls = 'muted'; sign = ''; }
   else { title = t.note || c?.name || 'Movimento'; sub = [c?.name, propById(t.propertyId)?.name, a?.name].filter(Boolean).join(' · '); cls = t.kind === 'entrata' ? 'pos' : ''; sign = t.kind === 'entrata' ? '+' : '−'; }
-  return `<div class="tx" data-act="edit-tx" data-id="${esc(t.id)}" tabindex="0" role="button">${catBadge(c, t.kind)}<div class="tx-main"><b>${esc(title)}</b><small>${esc(sub)}</small></div><div class="tx-amt num ${cls}">${sign}${money(+t.amount)}</div></div>`;
+  return `<div class="tx" data-act="edit-tx" data-id="${esc(t.id)}" tabindex="0" role="button">${catBadge(c, t.kind)}<div class="tx-main"><b>${esc(title)}</b><small>${esc(sub)}</small></div><div class="tx-amt num ${cls}">${sign}${txCur(t) !== BASE ? moneyC(txOrig(t), txCur(t)) : money(+t.amount)}${txCur(t) !== BASE ? `<small class="muted" style="display:block;font-weight:400;font-size:.75rem">≈ ${money(+t.amount)}</small>` : ''}</div></div>`;
 }
 function txList(list, { group = true } = {}) {
   if (!list.length) return `<div class="empty"><p>Nessun movimento da mostrare.</p><button class="btn primary" data-act="new-tx">Aggiungi un movimento</button></div>`;
@@ -890,7 +957,7 @@ VIEWS.budget = () => {
 };
 
 VIEWS.patrimonio = () => {
-  const bal = balances(), liquid = sumObj(bal), inv = investTotal(), cost = S.holdings.reduce((a, h) => a + holdingCost(h), 0);
+  const bal = balances(), balN = balancesNative(), liquid = sumObj(bal), inv = investTotal(), cost = S.holdings.reduce((a, h) => a + holdingCost(h), 0);
   const accs = activeAccounts();
   const byClass = {};
   S.holdings.forEach(h => byClass[h.assetClass || 'Altro'] = (byClass[h.assetClass || 'Altro'] || 0) + holdingValue(h));
@@ -906,7 +973,7 @@ VIEWS.patrimonio = () => {
     <div class="alloc">${alloc.map(x => `<i style="flex:${x.v};background:${x.c}" title="${esc(x.k)}"></i>`).join('') || '<i style="flex:1;background:var(--surface-2)"></i>'}</div>
     <div class="legend">${alloc.map(x => `<span><i class="dot" style="background:${x.c}"></i>${esc(x.k)} <b class="num">${pct(x.v / allocT)}</b> <span class="muted num">${money0(x.v)}</span></span>`).join('')}</div></section>
   <section class="panel"><div class="panel-h"><h2>Conti</h2><span class="muted num">Totale ${money(liquid)}</span></div>
-    ${accs.length ? `<div class="acc-list">${accs.map(a => `<button class="acc" data-act="edit-acc" data-id="${esc(a.id)}"><div class="acc-top"><span class="pill">${esc(ACC_TYPES[a.type] || a.type)}</span><i class="dot" style="background:${esc(a.color || '#999')}"></i></div><b>${esc(a.name)}</b><span class="v num ${bal[a.id] < 0 ? 'neg' : ''}">${money(bal[a.id] || 0)}</span></button>`).join('')}</div>`
+    ${accs.length ? `<div class="acc-list">${accs.map(a => `<button class="acc" data-act="edit-acc" data-id="${esc(a.id)}"><div class="acc-top"><span class="pill">${esc(ACC_TYPES[a.type] || a.type)}</span><i class="dot" style="background:${esc(a.color || '#999')}"></i></div><b>${esc(a.name)}</b><span class="v num ${bal[a.id] < 0 ? 'neg' : ''}">${accCur(a.id) !== BASE ? moneyC(balN[a.id] || 0, accCur(a.id)) : money(bal[a.id] || 0)}</span>${accCur(a.id) !== BASE ? `<span class="muted num" style="font-size:.8rem">${rateOf(accCur(a.id)) ? '≈ ' + money(bal[a.id] || 0) : 'Cambio ' + accCur(a.id) + ' mancante'}</span>` : ''}</button>`).join('')}</div>`
       : `<div class="empty"><p>Aggiungi il tuo primo conto: conto corrente, carta, contanti o conto titoli.</p><button class="btn primary" data-act="new-acc">+ Conto</button></div>`}
   </section>
   <section class="panel"><div class="panel-h"><h2>Portafoglio investimenti</h2>
@@ -968,6 +1035,10 @@ VIEWS.impostazioni = () => {
         <p class="muted" style="margin:6px 0 0;font-size:.88rem">Scarica tutti i movimenti in un file CSV apribile con Excel.</p>
         <button class="btn" data-act="export">Esporta movimenti (CSV)</button>
       </div>
+    </section>
+    <section class="panel"><div class="panel-h"><h2>Valute e cambi</h2><div style="display:flex;gap:6px;flex-wrap:wrap">${FX_ONLINE ? '<button class="btn small" data-act="fx-refresh">Aggiorna cambi BCE</button>' : ''}<button class="btn small" data-act="fx-add">+ Valuta</button></div></div>
+      <p class="muted" style="margin:0 0 8px;font-size:.88rem">Tutti i totali sono in euro. I movimenti in un'altra valuta tengono importo e cambio originali; i saldi dei conti in valuta sono convertiti con il cambio più recente.</p>
+      ${(() => { const curs = [...new Set([...S.accounts.map(a => a.currency), ...S.transactions.map(t => t.currency), ...Object.keys(S.settings.rates || {}), ...Object.keys(S.fx || {})].filter(c => c && c !== BASE))].sort(); return curs.length ? curs.map(c => { const r = rateOf(c), src = [S.settings.rates?.[c], S.fx[c]].filter(Boolean).sort((a, b) => String(b.date).localeCompare(String(a.date)))[0]; return `<div class="list-row"><div class="l"><b class="mono">${esc(c)}</b><span class="muted">${esc(CURRENCIES[c] || '')}</span></div><div style="display:flex;gap:8px;align-items:center"><span class="num">${r ? '1 ' + esc(c) + ' = ' + (+r).toLocaleString('it-IT', { maximumFractionDigits: 4 }) + ' €' : '<span class="pill warn">cambio mancante</span>'}</span>${src?.date ? `<span class="muted" style="font-size:.78rem">${dShort(src.date)}</span>` : ''}<button class="btn small ghost" data-act="fx-edit" data-cur="${esc(c)}">Modifica</button></div></div>`; }).join('') : '<p class="muted" style="margin:0">Usi solo euro. Per un conto o un movimento in un\'altra valuta, sceglila nel modulo.</p>'; })()}
     </section>
     <section class="panel"><div class="panel-h"><h2>Backup completo</h2></div>
       <div style="display:flex;flex-direction:column;gap:10px;align-items:flex-start">
@@ -1072,7 +1143,8 @@ function openForm(o) {
     btn.disabled = false;
     if (ok !== false) closeModal();
   });
-  form.addEventListener('change', () => o.onChange && o.onChange(formValues(form), form));
+  form.addEventListener('change', e => o.onChange && o.onChange(formValues(form), form, e));
+  form.addEventListener('input', e => { if (o.onChange && (e.target.name === 'amount' || e.target.name === 'rate')) o.onChange(formValues(form), form, e); });
   form.addEventListener('click', e => {
     const b = e.target.closest('[data-seg]'); if (!b) return;
     form.elements[b.dataset.seg].value = b.dataset.v;
@@ -1103,14 +1175,28 @@ function txForm(t, preset) {
     title: isNew ? 'Nuovo movimento' : 'Modifica movimento',
     fields: [
       { id: 'kind', type: 'seg', label: 'Tipo', value: t.kind, options: [{ v: 'spesa', l: 'Spesa' }, { v: 'entrata', l: 'Entrata' }, { v: 'giroconto', l: 'Giroconto' }] },
-      [{ id: 'amount', label: 'Importo (€)', num: true, value: t.amount ?? '', placeholder: '0,00', required: true }, { id: 'date', label: 'Data', type: 'date', value: t.date, required: true }],
+      [{ id: 'amount', label: 'Importo', num: true, value: t.amount != null ? txOrig(t) : '', placeholder: '0,00', required: true }, { id: 'currency', label: 'Valuta', type: 'select', value: t.currency || accCur(t.accountId), options: curOptions() }],
+      [{ id: 'date', label: 'Data', type: 'date', value: t.date, required: true }, { id: 'rate', label: 'Cambio', num: true, value: t.rate && txCur(t) !== BASE ? +(+t.rate).toFixed(6) : '', hint: '' }],
       { id: 'note', label: 'Descrizione', value: t.note || '', placeholder: 'Es. Spesa Esselunga' },
       [{ id: 'accountId', label: 'Conto', type: 'select', value: t.accountId, options: accs }, { id: 'toAccountId', label: 'Verso il conto', type: 'select', value: t.toAccountId || (accs.find(a => a.v !== t.accountId) || accs[0]).v, options: accs }],
       { id: 'categoryId', label: 'Categoria', type: 'select', value: t.categoryId || '', options: [{ v: '', l: '—' }] },
       ...(S.properties.length ? [{ id: 'propertyId', label: 'Proprietà', type: 'select', value: t.propertyId || '', options: [{ v: '', l: '— nessuna —' }, ...propOptions()], hint: 'A quale immobile si riferisce (luce, condominio, rata del mutuo…)' }] : [])
     ],
-    onChange(v, form) {
+    onChange(v, form, ev) {
       const g = v.kind === 'giroconto';
+      const cs = form.elements.currency, rf = form.elements.rate, nonBase = v.currency !== BASE;
+      if (ev && ev.target && ev.target.name === 'accountId' && !form.dataset.curTouched) { cs.value = accCur(v.accountId); v.currency = cs.value; }
+      if (ev && ev.target && ev.target.name === 'currency') form.dataset.curTouched = '1';
+      showField(form, 'rate', v.currency !== BASE);
+      form.querySelector('[data-f="rate"] label').textContent = `Cambio: 1 ${v.currency} = ? €`;
+      const hint = form.querySelector('[data-f="rate"] small') || form.querySelector('[data-f="rate"]').appendChild(Object.assign(document.createElement('small'), { className: 'muted' }));
+      const fill = (r, src) => { if (r && (!rf.value || rf.dataset.auto === '1')) { rf.value = String(+r.toFixed(6)).replace('.', ','); rf.dataset.auto = '1'; } updHint(src); };
+      const updHint = src => { const a = parseNum(form.elements.amount.value), r = parseNum(rf.value); hint.textContent = v.currency === BASE ? '' : (a > 0 && r > 0 ? `≈ ${money(a * r)}` : '') + (src ? (a > 0 && r > 0 ? ' · ' : '') + src : ''); };
+      if (ev && ev.target === rf) rf.dataset.auto = '';
+      if (v.currency !== BASE && (!ev || ['currency', 'date', 'accountId'].includes(ev.target?.name))) {
+        const known = rateOf(v.currency); fill(known, known ? 'ultimo cambio noto' : (FX_ONLINE ? '' : 'inserisci il cambio'));
+        if (FX_ONLINE) { const cur = v.currency, d = v.date; fxFetch(cur, d).then(r => { if (r && form.isConnected && form.elements.currency.value === cur) fill(r.rate, 'cambio BCE del ' + dShort(r.date)); }); }
+      } else updHint('');
       showField(form, 'toAccountId', g); showField(form, 'categoryId', !g); showField(form, 'propertyId', !g);
       form.querySelector('[data-f="accountId"] label').textContent = g ? 'Dal conto' : 'Conto';
       const sel = form.elements.categoryId, keep = sel.value || t.categoryId;
@@ -1124,15 +1210,19 @@ function txForm(t, preset) {
     validate(v) {
       const a = parseNum(v.amount);
       if (!(a > 0)) return 'Inserisci un importo maggiore di zero.';
+      if (v.currency !== BASE && !(parseNum(v.rate) > 0)) return `Inserisci il cambio: quanti euro vale 1 ${v.currency}.`;
       if (!v.date) return 'Inserisci la data.';
       if (v.kind === 'giroconto' && v.accountId === v.toAccountId) return 'Scegli due conti diversi per il giroconto.';
     },
     async onSubmit(v) {
-      const doc = { kind: v.kind, amount: Math.round(parseNum(v.amount) * 100) / 100, date: v.date, note: v.note.trim(), accountId: v.accountId, createdAt: t.createdAt || Date.now() };
+      const orig = Math.round(parseNum(v.amount) * 100) / 100, rate = v.currency === BASE ? 1 : parseNum(v.rate);
+      const doc = { kind: v.kind, amount: Math.round(orig * rate * 100) / 100, date: v.date, note: v.note.trim(), accountId: v.accountId, createdAt: t.createdAt || Date.now() };
       if (v.kind === 'giroconto') doc.toAccountId = v.toAccountId; else { doc.categoryId = v.categoryId || ''; if (v.propertyId) doc.propertyId = v.propertyId; }
+      if (v.currency !== BASE) { doc.currency = v.currency; doc.origAmount = orig; doc.rate = rate; }
       if (t.importKey) doc.importKey = t.importKey;
       if (t.demo) doc.demo = true;
       const ok = await put('transactions', t.id || uid(), doc);
+      if (ok && v.currency !== BASE) { const rates = { ...(S.settings.rates || {}) }; const prev = rates[v.currency]; if (!prev || prev.date <= v.date) { rates[v.currency] = { rate, date: v.date }; saveSettings({ rates }); } }
       if (ok) toast(isNew ? 'Movimento aggiunto' : 'Movimento aggiornato');
       return ok;
     },
@@ -1146,13 +1236,14 @@ function accForm(a) {
     title: isNew ? 'Nuovo conto' : 'Modifica conto',
     fields: [
       { id: 'name', label: 'Nome', value: a.name || '', placeholder: 'Es. Conto Intesa', required: true },
-      [{ id: 'type', label: 'Tipo', type: 'select', value: a.type, options: Object.entries(ACC_TYPES).map(([v, l]) => ({ v, l })) }, { id: 'openingBalance', label: 'Saldo iniziale (€)', num: true, value: a.openingBalance ?? 0, hint: 'Il saldo prima del primo movimento registrato' }],
+      [{ id: 'type', label: 'Tipo', type: 'select', value: a.type, options: Object.entries(ACC_TYPES).map(([v, l]) => ({ v, l })) }, { id: 'openingBalance', label: 'Saldo iniziale', num: true, value: a.openingBalance ?? 0, hint: 'Nella valuta del conto, prima del primo movimento registrato' }],
+      { id: 'currency', label: 'Valuta del conto', type: 'select', value: a.currency || BASE, options: curOptions() },
       { id: 'color', label: 'Colore', type: 'color', value: a.color },
       ...(isNew ? [] : [{ id: 'archived', label: 'Archiviato (nascosto dagli elenchi, il saldo resta nel patrimonio)', type: 'checkbox', value: !!a.archived }])
     ],
     validate: v => !v.name.trim() ? 'Dai un nome al conto.' : isNaN(parseNum(v.openingBalance || '0')) ? 'Il saldo iniziale non è un numero valido.' : '',
     async onSubmit(v) {
-      const doc = { ...strip(a), name: v.name.trim(), type: v.type, openingBalance: parseNum(v.openingBalance || '0') || 0, color: v.color || a.color, archived: !!v.archived };
+      const doc = { ...strip(a), name: v.name.trim(), type: v.type, currency: v.currency || BASE, openingBalance: parseNum(v.openingBalance || '0') || 0, color: v.color || a.color, archived: !!v.archived };
       const ok = await put('accounts', a.id || uid(), doc); ok && toast(isNew ? 'Conto creato' : 'Conto aggiornato'); return ok;
     },
     deleteLabel: used ? 'Elimina (ha movimenti)' : 'Elimina',
@@ -1383,7 +1474,7 @@ async function impGo() {
   const btn = $('[data-act="imp-go"]'); btn.disabled = true;
   const prog = $('#imp-prog'); prog.hidden = false;
   const base = Date.now();
-  const ok = await pool(out.map((t, i) => ({ ...t, accountId: IMP.accountId, createdAt: base + i })), 5, t => put('transactions', uid(), t), (d, n) => prog.textContent = `Importazione in corso: ${d} di ${n}…`);
+  const ok = await pool(out.map((t, i) => { const cur = accCur(IMP.accountId), r = rateOf(cur); return cur === BASE ? { ...t, accountId: IMP.accountId, createdAt: base + i } : { ...t, accountId: IMP.accountId, createdAt: base + i, currency: cur, origAmount: t.amount, rate: r || 1, amount: Math.round(t.amount * (r || 1) * 100) / 100 }; }), 5, t => put('transactions', uid(), t), (d, n) => prog.textContent = `Importazione in corso: ${d} di ${n}…`);
   closeModal();
   toast(ok === out.length ? `${ok} movimenti importati` : `${ok} di ${out.length} movimenti importati`, ok !== out.length);
   if (out.length) { S.ui.month = ymOf(out.map(t => t.date).sort().pop()); }
@@ -1441,6 +1532,9 @@ document.addEventListener('click', e => {
     const top = Object.entries(freq).sort((x, y) => y[1] - x[1])[0]?.[0] || guessCat(/utenz|bollett|condomin/i) || catsOf('spesa').find(c => c.id !== mc)?.id || '';
     return txForm(null, { propertyId: pr?.id || '', categoryId: top });
   }
+  if (a === 'fx-refresh') return fxRefresh(true);
+  if (a === 'fx-edit') return rateForm(t.dataset.cur);
+  if (a === 'fx-add') return openForm({ title: 'Aggiungi una valuta', fields: [{ id: 'cur', label: 'Valuta', type: 'select', options: curOptions().filter(o => o.v !== BASE) }], async onSubmit(v) { setTimeout(() => rateForm(v.cur), 0); return true; } });
   if (a === 'year') { S.ui.year = String(+S.ui.year + +t.dataset.d); render(); return; }
   if (a === 'month') { S.ui[t.dataset.key] = addMonths(S.ui[t.dataset.key], +t.dataset.d); render(); return; }
   if (a === 'new-tx') return txForm();
@@ -1592,6 +1686,7 @@ async function startSession(user) {
   for (const o of outbox) applyLocal(o.col, o.id, o.op === 'set' ? o.data : null);
   S.status = 'ok'; render(); updateSync();
   await refresh();
+  fxRefresh();
   if (S.synced && !S.categories.length && !outbox.length) DEFAULT_CATS.forEach(([id, name, kind], i) => put('categories', id, { name, kind, color: MACARON[i % MACARON.length] }));
 }
 
