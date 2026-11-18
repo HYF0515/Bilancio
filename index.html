@@ -117,7 +117,7 @@ a.btn{color:inherit;text-decoration:none}
 .txday{display:flex;justify-content:space-between;padding:12px 4px 6px;font-size:.78rem;font-weight:600;color:var(--muted);text-transform:capitalize;border-bottom:1px solid var(--line)}
 .tx{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 4px;border-bottom:1px solid var(--line);cursor:pointer;border-radius:6px}
 .tx:hover{background:var(--surface-2)}
-.tx-ic{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;font-weight:700;font-size:.8rem;color:#fff}
+.tx-ic{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;font-weight:700;font-size:.8rem;color:#3A3340}
 .tx-main{min-width:0}
 .tx-main b{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tx-main small{color:var(--muted);font-size:.8rem;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -284,6 +284,8 @@ function parseDate(s) {
   return null;
 }
 const PALETTE = ['#2F43C4','#2A9D8F','#E06C4C','#8E5CC4','#C99A16','#3D8BD9','#C2477A','#5B8C3A','#86745F','#D9663D','#4A6B8A','#B05FB0'];
+// Colori macaron per le categorie: pastelli morbidi, testo scuro sopra.
+const MACARON = ['#F7B7C3','#FFD6A5','#FDF1A6','#C8E6B0','#A8E0D4','#AED6F1','#C3C7F4','#D9B8F0','#F5C2E0','#E8CFB0','#B8E2E8','#F9C6A8'];
 const ACC_TYPES = { conto: 'Conto corrente', carta: 'Carta / prepagata', contanti: 'Contanti', risparmio: 'Conto deposito', investimenti: 'Conto titoli' };
 const ASSET_CLASSES = ['Azioni','ETF','Obbligazioni','Fondi','Liquidità','Crypto','Immobili','Altro'];
 const FREQ = { settimanale: 'Settimanale', mensile: 'Mensile', bimestrale: 'Bimestrale', trimestrale: 'Trimestrale', semestrale: 'Semestrale', annuale: 'Annuale' };
@@ -497,7 +499,7 @@ function monthNav(key) {
   return `<div class="month-nav"><button class="icon-btn" data-act="month" data-key="${key}" data-d="-1" aria-label="Mese precedente">‹</button><span>${ymLabel(ym)}</span><button class="icon-btn" data-act="month" data-key="${key}" data-d="1" aria-label="Mese successivo">›</button></div>`;
 }
 function catBadge(c, kind) {
-  if (kind === 'giroconto') return `<div class="tx-ic" style="background:#6B7385">⇄</div>`;
+  if (kind === 'giroconto') return `<div class="tx-ic" style="background:#6B7385;color:#fff">⇄</div>`;
   const col = c?.color || '#8A90A0';
   return `<div class="tx-ic" style="background:${esc(col)}">${esc((c?.name || '?').slice(0, 2).toUpperCase())}</div>`;
 }
@@ -991,7 +993,7 @@ function fieldHTML(f) {
   else if (f.type === 'heading') return `<div class="form-h">${esc(f.label)}</div>`;
   else if (f.type === 'checks') return `<div class="field" data-f="${f.id}"><label>${esc(f.label)}</label><div class="checks">${f.options.map((o, i) => `<label class="check"><input type="checkbox" data-multi name="${f.id}" id="${id}-${i}" value="${esc(o.v)}" ${(v || []).includes(o.v) ? 'checked' : ''}> ${esc(o.l)}</label>`).join('')}</div></div>`;
   else if (f.type === 'checkbox') return `<label class="check" data-f="${f.id}"><input type="checkbox" id="${id}" name="${f.id}" ${v ? 'checked' : ''}> ${esc(f.label)}</label>`;
-  else if (f.type === 'color') inner = `<div style="display:flex;gap:6px;flex-wrap:wrap">${PALETTE.map(c => `<label style="cursor:pointer"><input type="radio" name="${f.id}" value="${c}" ${c === v ? 'checked' : ''} style="position:absolute;opacity:0" ${c === PALETTE[0] ? `id="${id}"` : ''}><span class="dot" style="width:24px;height:24px;background:${c};outline:${c === v ? '2px solid var(--fg)' : 'none'};outline-offset:2px" data-swatch></span></label>`).join('')}</div>`;
+  else if (f.type === 'color') inner = `<div style="display:flex;gap:6px;flex-wrap:wrap">${(f.palette || PALETTE).map(c => `<label style="cursor:pointer"><input type="radio" name="${f.id}" value="${c}" ${c === v ? 'checked' : ''} style="position:absolute;opacity:0" ${c === (f.palette || PALETTE)[0] ? `id="${id}"` : ''}><span class="dot" style="width:24px;height:24px;background:${c};outline:${c === v ? '2px solid var(--fg)' : 'none'};outline-offset:2px" data-swatch></span></label>`).join('')}</div>`;
   else inner = `<input class="input${f.num ? ' num' : ''}" id="${id}" name="${f.id}" type="${f.type || 'text'}" ${f.num ? 'inputmode="decimal"' : ''} value="${esc(f.num && v !== '' ? String(v).replace('.', ',') : v)}" ${f.placeholder ? `placeholder="${esc(f.placeholder)}"` : ''} ${f.required ? 'required' : ''} autocomplete="off">`;
   return `<div class="field" data-f="${f.id}">${lab}${inner}${f.hint ? `<small class="muted">${esc(f.hint)}</small>` : ''}</div>`;
 }
@@ -1104,13 +1106,13 @@ function accForm(a) {
   });
 }
 function catForm(c) {
-  const isNew = !c; c = c || { kind: 'spesa', color: PALETTE[S.categories.length % PALETTE.length] };
+  const isNew = !c; c = c || { kind: 'spesa', color: MACARON[S.categories.length % MACARON.length] };
   openForm({
     title: isNew ? 'Nuova categoria' : 'Modifica categoria',
     fields: [
       { id: 'kind', type: 'seg', label: 'Tipo', value: c.kind, options: [{ v: 'spesa', l: 'Spesa' }, { v: 'entrata', l: 'Entrata' }] },
       { id: 'name', label: 'Nome', value: c.name || '', required: true },
-      { id: 'color', label: 'Colore', type: 'color', value: c.color }
+      { id: 'color', label: 'Colore', type: 'color', value: c.color, palette: MACARON }
     ],
     validate: v => !v.name.trim() ? 'Dai un nome alla categoria.' : '',
     async onSubmit(v) { const ok = await put('categories', c.id || uid(), { ...strip(c), kind: v.kind, name: v.name.trim(), color: v.color || c.color }); ok && toast('Categoria salvata'); return ok; },
@@ -1532,7 +1534,7 @@ async function startSession(user) {
   for (const o of outbox) applyLocal(o.col, o.id, o.op === 'set' ? o.data : null);
   S.status = 'ok'; render(); updateSync();
   await refresh();
-  if (S.synced && !S.categories.length && !outbox.length) DEFAULT_CATS.forEach(([id, name, kind], i) => put('categories', id, { name, kind, color: PALETTE[i % PALETTE.length] }));
+  if (S.synced && !S.categories.length && !outbox.length) DEFAULT_CATS.forEach(([id, name, kind], i) => put('categories', id, { name, kind, color: MACARON[i % MACARON.length] }));
 }
 
 /* ---------- avvio ---------- */
