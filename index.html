@@ -262,6 +262,7 @@ body.locked .app{grid-template-columns:minmax(0,1fr)}
 .prop-actions{display:flex;flex-wrap:nowrap;gap:8px;margin:0 0 4px;overflow-x:auto;scrollbar-width:none}
 .prop-actions::-webkit-scrollbar{display:none}
 .prop-actions .btn{flex:none;white-space:nowrap}
+.page-total{margin:-4px 0 2px}.page-total .v{font-family:var(--f-display);font-size:1.9rem;font-weight:700;font-variant-numeric:tabular-nums}
 .prop-addr{margin:-4px 0 10px;font-size:.85rem}
 .pc{font-size:.78em;letter-spacing:0}
 .splash{position:fixed;inset:0;z-index:200;background:#FBF7F2;transition:opacity .35s ease}
@@ -393,7 +394,7 @@ html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
 <script>
 (() => {
 "use strict";
-const APP_VERSION = '52';
+const APP_VERSION = '53';
 /* ---------- utilità ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -684,6 +685,14 @@ function listen() {
 function onFirstSync() {
   if (!S.categories.length) DEFAULT_CATS.forEach(([id, name, kind], i) => put('categories', id, { name, kind, color: MACARON[i % MACARON.length] }));
   fxRefresh();
+  autoSnapshot();
+}
+// Salva in silenzio il valore del mese corrente, così il grafico ricorda gli investimenti dei mesi passati
+function autoSnapshot() {
+  const d = todayISO(), id = d.slice(0, 7), liq = sumObj(balances()), inv = investTotal(), old = S.snapshots.find(x => x.id === id);
+  if (!S.holdings.length && !old) return;
+  if (old && old.date === d && Math.abs((+old.invest || 0) - inv) < 0.5) return;
+  put('snapshots', id, { date: d, liquid: Math.round(liq * 100) / 100, invest: Math.round(inv * 100) / 100, total: Math.round((liq + inv) * 100) / 100 });
 }
 async function refresh() {
   if (!S.fs) return;
@@ -1301,17 +1310,17 @@ VIEWS.patrimonio = () => {
   const allocT = alloc.reduce((s, x) => s + x.v, 0) || 1;
   const hs = [...S.holdings].sort((a, b) => holdingValue(b) - holdingValue(a));
   return `
-  <div class="head"><div><div class="eyebrow">Patrimonio</div><h1>${money0(liquid + inv)}</h1></div>
-    <div class="head-actions"><button class="btn" data-act="snapshot">Registra valore di oggi</button><button class="btn" data-act="new-acc">+ Conto</button><button class="btn primary" data-act="new-hold">+ Investimento</button></div></div>
-  <section class="panel"><div class="panel-h"><h2>Andamento del patrimonio netto</h2><div class="chart-legend"><span><i class="dot" style="background:var(--bar)"></i>Patrimonio netto</span><span><i class="dot" style="background:var(--chart-in)"></i>Liquidità</span></div></div><div class="chart" data-chart="networth"></div>
-    <p class="muted" style="font-size:.8rem;margin:8px 0 0">La liquidità è ricostruita dai movimenti. Il valore degli investimenti nei mesi passati viene dalle registrazioni che salvi con “Registra valore di oggi”.</p></section>
+  <div class="head with-nav"><div><div class="eyebrow">Patrimonio</div><h1>Patrimonio</h1></div></div>
+  <div class="page-total privacy"><span class="v num">${money0(liquid + inv)}</span></div>
+  <div class="prop-actions"><button class="btn small" data-act="new-acc">+ Conto</button><button class="btn small primary" data-act="new-hold">+ Investimento</button></div>
+  <section class="panel"><div class="panel-h"><h2>Andamento del patrimonio netto</h2><div class="chart-legend"><span><i class="dot" style="background:var(--bar)"></i>Patrimonio netto</span><span><i class="dot" style="background:var(--chart-in)"></i>Liquidità</span></div></div><div class="chart" data-chart="networth"></div></section>
   <section class="panel"><div class="panel-h"><h2>Asset allocation</h2></div>
     <div class="alloc">${alloc.map(x => `<i style="flex:${x.v};background:${x.c}" title="${esc(x.k)}"></i>`).join('') || '<i style="flex:1;background:var(--surface-2)"></i>'}</div>
     <div class="legend">${alloc.map(x => `<span><i class="dot" style="background:${x.c}"></i>${esc(x.k)} <b class="num">${pct(x.v / allocT)}</b> <span class="muted num">${money0(x.v)}</span></span>`).join('')}</div></section>
   ${(() => {
     const cards = accs.filter(a => a.type === 'credito'); if (!cards.length) return '';
     const debt = cards.reduce((s, a) => s + Math.max(0, -(bal[a.id] || 0)), 0);
-    return `<section class="panel"><div class="panel-h"><div><h2>Carte di credito</h2><span class="muted" style="font-size:.82rem">Spese con la carta non ancora addebitate sul conto. Quando la banca addebita l'estratto conto, premi “Registra addebito”.</span></div><span class="pill ${debt ? 'neg' : 'pos'} num">Da pagare ${money(debt)}</span></div>
+    return `<section class="panel"><div class="panel-h"><h2>Carte di credito</h2><span class="pill ${debt ? 'neg' : 'pos'} num">Da pagare ${money(debt)}</span></div>
     ${cards.map(a => {
       const due = -(bal[a.id] || 0), from = acc(a.payFrom);
       const lastPay = sortTx(S.transactions.filter(t => (t.kind === 'giroconto') && t.toAccountId === a.id))[0];
@@ -1329,7 +1338,7 @@ VIEWS.patrimonio = () => {
     ${pacDueHTML()}
     ${hs.length ? `<div class="tbl-wrap"><table><thead><tr><th>Titolo</th><th>Classe</th><th class="r">Quantità</th><th class="r">Prezzo medio</th><th class="r">Valore</th><th class="r">P/L</th><th class="r">Peso</th></tr></thead><tbody>
       ${hs.map(h => { const v = holdingValue(h), c = holdingCost(h), pl = v - c; return `<tr class="click" data-act="edit-hold" data-id="${esc(h.id)}"><td><b>${esc(h.name)}</b>${pacOn(h) ? `<br><span class="muted" style="font-size:.78rem;white-space:nowrap">PAC ${money0(+h.pac.amount)}/mese</span>` : ''}</td><td>${esc(h.assetClass || '')}</td><td class="r num">${nf.format(+h.quantity || 0)}</td><td class="r num">${money(+h.avgCost)}</td><td class="r num"><b>${money(v)}</b></td><td class="r num ${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${money(Math.abs(pl))}<br><span style="font-size:.78rem">${pct(c ? pl / c : NaN)}</span></td><td class="r num">${pct(inv ? v / inv : NaN)}</td></tr>`; }).join('')}
-    </tbody></table></div><p class="muted" style="font-size:.8rem;margin:10px 0 0">Tocca una riga per aggiornare il prezzo o impostare il PAC.</p>`
+    </tbody></table></div>`
       : `<div class="empty"><p>Registra azioni, ETF, obbligazioni o altri asset con quantità e prezzo.</p><button class="btn primary" data-act="new-hold">+ Investimento</button></div>`}
   </section>`;
 };
@@ -1341,7 +1350,8 @@ VIEWS.obiettivi = () => {
   const monthlyOut = rec.filter(r => r.active !== false && (r.kind === 'spesa' || r.kind === 'accantonamento')).reduce((s, r) => s + (+r.amount) * (FREQ_M[r.frequency] || 1), 0);
   const monthlyIn = rec.filter(r => r.active !== false && r.kind === 'entrata').reduce((s, r) => s + (+r.amount) * (FREQ_M[r.frequency] || 1), 0);
   return `
-  <div class="head"><div><div class="eyebrow">Obiettivi e ricorrenze</div><h1>Pianificazione</h1></div><div class="head-actions"><button class="btn" data-act="new-rec">+ Ricorrenza</button><button class="btn primary" data-act="new-goal">+ Obiettivo</button></div></div>
+  <div class="head with-nav"><div><div class="eyebrow"><span class="lbl-long">Obiettivi e ricorrenze</span><span class="lbl-short">Obiettivi</span></div><h1>Pianificazione</h1></div></div>
+  <div class="prop-actions"><button class="btn small" data-act="new-rec">+ Ricorrenza</button><button class="btn small primary" data-act="new-goal">+ Obiettivo</button></div>
   <section><div class="panel-h"><h2>Obiettivi di risparmio</h2></div>
     ${goals.length ? `<div class="goals">${goals.map(g => {
       const t = +g.target || 0, s = +g.saved || 0, r = t ? s / t : 0, rem = Math.max(0, t - s);
@@ -1357,7 +1367,7 @@ VIEWS.obiettivi = () => {
   <section class="panel"><div class="panel-h"><h2>Spese e entrate ricorrenti</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="pill num">Uscite fisse ${money0(monthlyOut)}/mese</span><span class="pill pos num">Entrate fisse ${money0(monthlyIn)}/mese</span></div></div>
     ${rec.length ? `<div class="tbl-wrap"><table><thead><tr><th>Voce</th><th>Frequenza</th><th>Prossima</th><th class="r">Importo</th><th class="r">Al mese</th><th></th></tr></thead><tbody>
       ${rec.map(r => { const off = r.active === false, late = !off && r.nextDate && r.nextDate <= today; return `<tr class="click" data-act="edit-rec" data-id="${esc(r.id)}" style="${off ? 'opacity:.55' : ''}"><td><b>${esc(r.name)}</b><br><span class="muted" style="font-size:.8rem">${esc(cat(r.categoryId)?.name || '')}${acc(r.accountId) ? ' · ' + esc(acc(r.accountId).name) : ''}</span></td><td>${esc(FREQ[r.frequency] || '')}</td><td>${off ? '<span class="pill">In pausa</span>' : `<span class="pill ${late ? 'neg' : ''}">${dShort(r.nextDate)}</span>`}</td><td class="r num ${r.kind === 'entrata' ? 'pos' : ''}">${r.kind === 'entrata' ? '+' : '−'}${money(+r.amount)}</td><td class="r num muted">${money((+r.amount) * (FREQ_M[r.frequency] || 1))}</td><td class="r">${!off && late ? `<button class="btn small" data-act="rec-post" data-id="${esc(r.id)}">Registra</button>` : ''}</td></tr>`; }).join('')}
-    </tbody></table></div><p class="muted" style="font-size:.8rem;margin:10px 0 0">Quando una voce è scaduta, “Registra” crea il movimento e sposta la prossima data.</p>`
+    </tbody></table></div>`
       : `<div class="empty"><p>Aggiungi abbonamenti, affitto, stipendio e altre voci che si ripetono.</p><button class="btn primary" data-act="new-rec">+ Ricorrenza</button></div>`}
   </section>`;
 };
