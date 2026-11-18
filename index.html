@@ -390,6 +390,7 @@ function balancesNative(upTo) {
   S.accounts.forEach(a => b[a.id] = +a.openingBalance || 0);
   for (const t of S.transactions) {
     if (upTo && t.date > upTo) continue;
+    if (t.paidBy) continue;
     if (t.kind === 'entrata') b[t.accountId] = (b[t.accountId] || 0) + valIn(t.accountId, t);
     else if (t.kind === 'spesa') b[t.accountId] = (b[t.accountId] || 0) - valIn(t.accountId, t);
     else if (t.kind === 'giroconto' || t.kind === 'accantonamento') { b[t.accountId] = (b[t.accountId] || 0) - valIn(t.accountId, t); b[t.toAccountId] = (b[t.toAccountId] || 0) + (t.toAmount != null && txCur(t) !== accCur(t.toAccountId) && t.toCurrency === accCur(t.toAccountId) ? +t.toAmount : valIn(t.toAccountId, t)); }
@@ -415,7 +416,7 @@ function rateForm(cur) {
 // Accantonamento: trasferimento verso un fondo che conta come uscita (es. tasse future).
 // Le spese pagate da un conto "fondo" non contano di nuovo come uscite: sono già state accantonate.
 const isReserve = id => !!acc(id)?.reserve;
-const isOut = t => (t.kind === 'spesa' && !isReserve(t.accountId)) || t.kind === 'accantonamento';
+const isOut = t => !t.paidBy && ((t.kind === 'spesa' && !isReserve(t.accountId)) || t.kind === 'accantonamento');
 const sumObj = o => Object.values(o).reduce((a, b) => a + b, 0);
 const holdingValue = h => (+h.quantity || 0) * (+h.price || 0);
 const holdingCost = h => (+h.quantity || 0) * (+h.avgCost || 0);
@@ -657,7 +658,7 @@ function txRow(t) {
   let title, sub, cls, sign;
   if (t.kind === 'giroconto') { title = t.note || 'Giroconto'; sub = `${a?.name || '?'} → ${acc(t.toAccountId)?.name || '?'}`; cls = 'muted'; sign = ''; }
   else if (t.kind === 'accantonamento') { title = t.note || 'Accantonamento ' + (c?.name || ''); sub = ['Accantonato', c?.name, `${a?.name || '?'} → ${acc(t.toAccountId)?.name || '?'}`].filter(Boolean).join(' · '); cls = ''; sign = '−'; }
-  else { const fromFund = t.kind === 'spesa' && isReserve(t.accountId); title = t.note || c?.name || 'Movimento'; sub = [fromFund ? 'Pagato dal fondo' : '', c?.name, propById(t.propertyId)?.name, a?.name].filter(Boolean).join(' · '); cls = t.kind === 'entrata' ? 'pos' : fromFund ? 'muted' : ''; sign = t.kind === 'entrata' ? '+' : '−'; }
+  else { const fromFund = !t.paidBy && t.kind === 'spesa' && isReserve(t.accountId); title = t.note || c?.name || 'Movimento'; sub = [t.paidBy ? 'Pagata da ' + t.paidBy : '', fromFund ? 'Pagato dal fondo' : '', c?.name, propById(t.propertyId)?.name, t.paidBy ? '' : a?.name].filter(Boolean).join(' · '); cls = t.kind === 'entrata' ? 'pos' : (fromFund || t.paidBy) ? 'muted' : ''; sign = t.kind === 'entrata' ? '+' : '−'; }
   return `<div class="tx" data-act="edit-tx" data-id="${esc(t.id)}" tabindex="0" role="button">${catBadge(c, t.kind)}<div class="tx-main"><b>${esc(title)}</b><small>${esc(sub)}</small></div><div class="tx-amt num ${cls}">${sign}${txCur(t) !== BASE ? moneyC(txOrig(t), txCur(t)) : money(+t.amount)}${txCur(t) !== BASE ? `<small class="muted" style="display:block;font-weight:400;font-size:.75rem">≈ ${money(+t.amount)}</small>` : ''}</div></div>`;
 }
 function txList(list, { group = true } = {}) {
@@ -772,7 +773,8 @@ VIEWS.proprieta = () => {
   const ms = mortgageStats(pr), year = S.ui.propYear, mcat = pr.mortgage?.categoryId || '';
   const all = S.transactions.filter(t => t.propertyId === pr.id && t.kind !== 'giroconto');
   const ptx = sortTx(all.filter(t => String(t.date).startsWith(year)));
-  const outs = ptx.filter(t => t.kind === 'spesa'), ins = ptx.filter(t => t.kind === 'entrata');
+  const outsAll = ptx.filter(t => t.kind === 'spesa'), outs = outsAll.filter(t => !t.paidBy), others = outsAll.filter(t => t.paidBy), ins = ptx.filter(t => t.kind === 'entrata');
+  const othersTot = others.reduce((s, t) => s + +t.amount, 0);
   const mort = outs.filter(t => mcat && t.categoryId === mcat).reduce((s, t) => s + +t.amount, 0);
   const byCat = {}; outs.filter(t => !(mcat && t.categoryId === mcat)).forEach(t => byCat[t.categoryId] = (byCat[t.categoryId] || 0) + +t.amount);
   const exp = sumObj(byCat), tot = exp + mort, inc = ins.reduce((s, t) => s + +t.amount, 0);
@@ -786,7 +788,7 @@ VIEWS.proprieta = () => {
       <div class="kpi"><span class="eyebrow">Mutuo pagato</span><span class="v num pos">${ms ? money0(paidCap) : allMortPaid ? money0(allMortPaid) : '—'}</span><span class="s">${ms ? `${pct(ms.pctRepaid)} del capitale · rate versate ${money0(ms.paid)}` : allMortPaid ? 'Rate versate finora' : 'Nessun mutuo inserito'}</span></div>
       <div class="kpi"><span class="eyebrow">Rimane da pagare</span><span class="v num">${ms ? money0(ms.res) : '—'}</span><span class="s">${ms ? (ms.monthsLeft ? `${ms.monthsLeft} rate · fine ${ymShort(ms.endYm)} ${ms.endYm.slice(0, 4)}` : ms.res <= 0.005 ? 'Mutuo estinto' : 'Capitale residuo') : 'Inserisci il mutuo in “Modifica dati”'}</span></div>
       <div class="kpi"><span class="eyebrow">Spese ${year}</span><span class="v num">${money0(exp)}</span><span class="s">Escluso il mutuo${months ? ` · ${money0(exp / months)}/mese` : ''}</span></div>
-      <div class="kpi"><span class="eyebrow">Totale ${year}</span><span class="v num">${money0(tot)}</span><span class="s">Rate ${money0(mort)} + spese ${money0(exp)}${inc ? ` · entrate +${money0(inc)}` : ''}</span></div>
+      <div class="kpi"><span class="eyebrow">Totale ${year}</span><span class="v num">${money0(tot)}</span><span class="s">Rate ${money0(mort)} + spese ${money0(exp)}${othersTot ? ` · pagati da altri ${money0(othersTot)}` : ''}${inc ? ` · entrate +${money0(inc)}` : ''}</span></div>
     </div>
     ${ms ? `<div style="margin-top:14px;display:flex;flex-direction:column;gap:6px"><div class="bar" style="height:12px"><i style="width:${Math.min(100, ms.pctRepaid * 100).toFixed(1)}%;background:var(--pos)"></i></div><div style="display:flex;justify-content:space-between;font-size:.8rem" class="muted"><span>Pagato ${money0(paidCap)}</span><span>Totale mutuo ${money0(ms.principal)}</span></div></div>` : ''}
   </section>`;
@@ -817,7 +819,11 @@ VIEWS.proprieta = () => {
     ${Object.keys(byCat).length ? Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([cid, v]) => { const c = cat(cid); return `<div class="catrow"><div class="catname"><i class="dot" style="background:${esc(c?.color || '#999')}"></i><span>${esc(c?.name || 'Senza categoria')}</span></div><div class="num">${money(v)} <span class="muted">· ${pct(v / exp)}</span></div><div class="bar"><i style="width:${(v / exp * 100).toFixed(1)}%;background:${esc(c?.color || 'var(--accent)')}"></i></div></div>`; }).join('') : `<p class="muted" style="margin:0">Nessuna spesa per ${esc(pr.name)} nel ${year}. Quando registri un movimento, scegli “${esc(pr.name)}” nel campo Proprietà.</p>`}
   </section>
   <section class="panel"><div class="panel-h"><h2>Movimenti nel ${year}</h2><span class="pill num">${ptx.length}</span></div>${ptx.length ? txList(ptx.slice(0, 40)) + (ptx.length > 40 ? `<p class="muted" style="margin:10px 0 0">Mostrati gli ultimi 40. Gli altri sono in Movimenti, filtrando per proprietà.</p>` : '') : '<p class="muted" style="margin:0">Nessun movimento.</p>'}</section>`;
-  return head + summary + mortHTML + spese + valueHTML;
+  const byPerson = {}; others.forEach(t => { const k = t.paidBy; (byPerson[k] = byPerson[k] || { tot: 0, cats: new Set() }).tot += +t.amount; if (cat(t.categoryId)) byPerson[k].cats.add(cat(t.categoryId).name); });
+  const othersHTML = others.length ? `<section class="panel"><div class="panel-h"><div><h2>Pagate da altri nel ${year}</h2><span class="muted" style="font-size:.82rem">Non rientrano nelle tue spese, ma fanno parte del costo dell'immobile</span></div><span class="muted num">${money(othersTot)}</span></div>
+    ${Object.entries(byPerson).sort((a, b) => b[1].tot - a[1].tot).map(([who, x]) => `<div class="list-row"><div class="l" style="align-items:flex-start"><div style="min-width:0"><b>${esc(who)}</b><small class="muted" style="display:block">${esc([...x.cats].join(', '))}</small></div></div><span class="num">${money(x.tot)}</span></div>`).join('')}
+    <p class="muted" style="font-size:.82rem;margin:10px 0 0">Costo complessivo dell'immobile nel ${year}: <b class="num">${money0(tot + othersTot)}</b> (tu ${money0(tot)} · altri ${money0(othersTot)})</p></section>` : '';
+  return head + summary + mortHTML + spese + othersHTML + valueHTML;
 };
 function propForm(pr) {
   const isNew = !pr; pr = pr || { name: S.properties.length ? '' : 'Marzabotto 14' };
@@ -1108,9 +1114,10 @@ VIEWS.impostazioni = () => {
     </section>
     <section class="panel"><div class="panel-h"><h2>Importa ed esporta</h2></div>
       <div style="display:flex;flex-direction:column;gap:10px;align-items:flex-start">
-        <p class="muted" style="margin:0;font-size:.88rem">Importa l'estratto conto in CSV della tua banca: riconosco separatori, date e importi in formato italiano e salto i movimenti già presenti.</p>
-        <button class="btn primary" data-act="import">Importa CSV</button>
-        <p class="muted" style="margin:6px 0 0;font-size:.88rem">Scarica tutti i movimenti in un file CSV apribile con Excel.</p>
+        <p class="muted" style="margin:0;font-size:.88rem">Importa l'estratto conto della tua banca in CSV o Excel: riconosco date e importi in formato italiano e salto i movimenti già presenti.</p>
+        <button class="btn primary" data-act="import">Importa CSV o Excel</button>
+        <p class="muted" style="margin:6px 0 0;font-size:.88rem">Scarica un file Excel con movimenti, conti, categorie e budget, proprietà e investimenti, ognuno nel suo foglio. Oppure solo i movimenti in CSV.</p>
+        <button class="btn" data-act="export-xlsx" ${typeof S.dl === 'undefined' || S.dl || !(window.claude && window.claude.use) ? '' : 'disabled title="Download non disponibile in questa vista"'}>Esporta in Excel (.xlsx)</button>
         <button class="btn" data-act="export">Esporta movimenti (CSV)</button>
       </div>
     </section>
@@ -1258,7 +1265,9 @@ function txForm(t, preset) {
       { id: 'note', label: 'Descrizione', value: t.note || '', placeholder: 'Es. Spesa Esselunga' },
       [{ id: 'accountId', label: 'Conto', type: 'select', value: t.accountId, options: accs }, { id: 'toAccountId', label: 'Verso il conto', type: 'select', value: t.toAccountId || (accs.find(a => a.v !== t.accountId) || accs[0]).v, options: accs }],
       { id: 'categoryId', label: 'Categoria', type: 'select', value: t.categoryId || '', options: [{ v: '', l: '—' }] },
-      ...(S.properties.length ? [{ id: 'propertyId', label: 'Proprietà', type: 'select', value: t.propertyId || '', options: [{ v: '', l: '— nessuna —' }, ...propOptions()], hint: 'A quale immobile si riferisce (luce, condominio, rata del mutuo…)' }] : [])
+      ...(S.properties.length ? [{ id: 'propertyId', label: 'Proprietà', type: 'select', value: t.propertyId || '', options: [{ v: '', l: '— nessuna —' }, ...propOptions()], hint: 'A quale immobile si riferisce (luce, condominio, rata del mutuo…)' }] : []),
+      { id: 'byOther', label: 'Pagata da un\'altra persona: la registro per tenerne traccia, ma non conta nelle mie spese né nei miei conti', type: 'checkbox', value: !!t.paidBy },
+      { id: 'paidBy', label: 'Chi ha pagato', value: t.paidBy || '', placeholder: 'Es. Marco, i miei genitori, l\'inquilino' }
     ],
     onChange(v, form, ev) {
       const g = v.kind === 'giroconto';
@@ -1275,7 +1284,8 @@ function txForm(t, preset) {
         const known = rateOf(v.currency); fill(known, known ? 'ultimo cambio noto' : (FX_ONLINE ? '' : 'inserisci il cambio'));
         if (FX_ONLINE) { const cur = v.currency, d = v.date; fxFetch(cur, d).then(r => { if (r && form.isConnected && form.elements.currency.value === cur) fill(r.rate, 'cambio BCE del ' + dShort(r.date)); }); }
       } else updHint('');
-      const ac = v.kind === 'accantonamento';
+      const ac = v.kind === 'accantonamento', other = v.kind === 'spesa' && !!v.byOther;
+      showField(form, 'byOther', v.kind === 'spesa'); showField(form, 'paidBy', other); showField(form, 'accountId', !other);
       showField(form, 'toAccountId', g || ac); showField(form, 'categoryId', !g); showField(form, 'propertyId', !g && !ac);
       form.querySelector('[data-f="accountId"] label').textContent = g || ac ? 'Dal conto' : 'Conto';
       form.querySelector('[data-f="toAccountId"] label').textContent = ac ? 'Nel fondo' : 'Verso il conto';
@@ -1300,11 +1310,13 @@ function txForm(t, preset) {
       if (!v.date) return 'Inserisci la data.';
       if ((v.kind === 'giroconto' || v.kind === 'accantonamento') && v.accountId === v.toAccountId) return v.kind === 'giroconto' ? 'Scegli due conti diversi per il giroconto.' : 'Scegli un fondo diverso dal conto di partenza.';
       if (v.kind === 'accantonamento' && !v.categoryId) return 'Scegli la categoria della spesa futura (es. Tasse).';
+      if (v.kind === 'spesa' && v.byOther && !String(v.paidBy || '').trim()) return 'Scrivi chi ha pagato la spesa.';
     },
     async onSubmit(v) {
       const orig = Math.round(parseNum(v.amount) * 100) / 100, rate = v.currency === BASE ? 1 : parseNum(v.rate);
       const doc = { kind: v.kind, amount: Math.round(orig * rate * 100) / 100, date: v.date, note: v.note.trim(), accountId: v.accountId, createdAt: t.createdAt || Date.now() };
       if (v.kind === 'giroconto') doc.toAccountId = v.toAccountId; else if (v.kind === 'accantonamento') { doc.toAccountId = v.toAccountId; doc.categoryId = v.categoryId || ''; } else { doc.categoryId = v.categoryId || ''; if (v.propertyId) doc.propertyId = v.propertyId; }
+      if (v.kind === 'spesa' && v.byOther) doc.paidBy = String(v.paidBy).trim();
       if (v.currency !== BASE) { doc.currency = v.currency; doc.origAmount = orig; doc.rate = rate; }
       if (t.importKey) doc.importKey = t.importKey;
       if (t.demo) doc.demo = true;
@@ -1443,6 +1455,56 @@ async function snapshot() {
   if (await put('snapshots', d.slice(0, 7), { date: d, liquid: Math.round(liq * 100) / 100, invest: Math.round(inv * 100) / 100, total: Math.round((liq + inv) * 100) / 100 })) toast(`Valore registrato per ${ymLabel(ymOf(d)).toLowerCase()}: ${money0(liq + inv)}`);
 }
 
+/* ---------- Excel (import / export) ---------- */
+let _xlsx = null;
+function loadXLSX() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  if (_xlsx) return _xlsx;
+  _xlsx = new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; sc.onload = () => res(window.XLSX); sc.onerror = () => { _xlsx = null; rej(new Error('xlsx')); }; document.head.appendChild(sc); });
+  return _xlsx;
+}
+async function saveFile(filename, data, mime) {
+  const blob = new Blob([data], { type: mime });
+  if (S.dl) { try { await S.dl.save({ filename, data: blob }); return true; } catch (e) { return false; } }
+  const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000); return true;
+}
+async function exportXLSX() {
+  let X; try { X = await loadXLSX(); } catch (e) { toast('Non riesco a caricare il modulo Excel: controlla la connessione.', true); return; }
+  const K = { spesa: 'Spesa', entrata: 'Entrata', giroconto: 'Giroconto', accantonamento: 'Accantonamento' };
+  const d = iso => iso ? new Date(iso + 'T12:00:00') : '';
+  const r2 = v => Math.round((+v || 0) * 100) / 100;
+  const mov = sortTx(S.transactions).reverse().map(t => ({
+    'Data': d(t.date), 'Tipo': K[t.kind] || t.kind, 'Descrizione': t.note || '', 'Categoria': cat(t.categoryId)?.name || '',
+    'Importo (€)': r2((t.kind === 'spesa' || t.kind === 'accantonamento') ? -t.amount : +t.amount),
+    'Valuta': txCur(t), 'Importo originale': r2(txOrig(t)), 'Cambio (€ per unità)': t.rate && txCur(t) !== BASE ? +(+t.rate).toFixed(6) : 1,
+    'Conto': t.paidBy ? '' : (acc(t.accountId)?.name || ''), 'Verso conto / fondo': acc(t.toAccountId)?.name || '',
+    'Proprietà': propById ? (propById(t.propertyId)?.name || '') : '', 'Pagata da': t.paidBy || ''
+  }));
+  const balN = balancesNative(), bal = balances();
+  const conti = S.accounts.map(a => ({ 'Nome': a.name, 'Tipo': ACC_TYPES[a.type] || a.type, 'Valuta': a.currency || BASE, 'Saldo iniziale': r2(a.openingBalance), 'Saldo attuale': r2(balN[a.id]), 'Saldo in €': r2(bal[a.id]), 'Fondo di accantonamento': a.reserve ? 'Sì' : 'No', 'Archiviato': a.archived ? 'Sì' : 'No' }));
+  const cats = [...S.categories].sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name, 'it')).map(c => ({ 'Nome': c.name, 'Tipo': c.kind === 'spesa' ? 'Spesa' : 'Entrata', 'Budget mensile': r2((S.settings.budgets || {})[c.id]) || '', 'Budget annuale': c.kind === 'spesa' && annualBudget(c.id) ? r2(annualBudget(c.id)) : '' }));
+  const props = (S.properties || []).map(p => { const ms = mortgageStats(p); return { 'Nome': p.name, 'Indirizzo': p.address || '', 'Prezzo d\'acquisto': r2(p.purchasePrice) || '', 'Valore stimato': r2(p.currentValue) || '', 'Totale mutuo': ms ? r2(ms.principal) : '', 'Debito residuo': ms ? r2(ms.res) : '', 'Rata mensile': ms && ms.pay ? r2(ms.pay) : '', 'Tasso (TAN %)': p.mortgage?.rate ?? '' }; });
+  const inv = S.holdings.map(h => ({ 'Nome': h.name, 'Ticker / ISIN': h.ticker || '', 'Classe': h.assetClass || '', 'Quantità': +h.quantity || 0, 'Prezzo medio (€)': r2(h.avgCost), 'Prezzo attuale (€)': r2(h.price), 'Valore (€)': r2(holdingValue(h)), 'Data prezzo': d(h.priceDate) }));
+  const wb = X.utils.book_new();
+  const add = (name, rows, fallback) => { const ws = X.utils.json_to_sheet(rows.length ? rows : [fallback], { cellDates: true, dateNF: 'dd/mm/yyyy' }); const keys = Object.keys(rows[0] || fallback); ws['!cols'] = keys.map(k => ({ wch: Math.max(12, k.length + 2, ...rows.slice(0, 200).map(r => String(r[k] instanceof Date ? '00/00/0000' : r[k] ?? '').length + 1)) })); X.utils.book_append_sheet(wb, ws, name); };
+  add('Movimenti', mov, { 'Data': '', 'Tipo': '', 'Descrizione': '', 'Categoria': '', 'Importo (€)': '' });
+  add('Conti', conti, { 'Nome': '' });
+  add('Categorie', cats, { 'Nome': '' });
+  if (props.length) add('Proprietà', props, { 'Nome': '' });
+  if (inv.length) add('Investimenti', inv, { 'Nome': '' });
+  const buf = X.write(wb, { bookType: 'xlsx', type: 'array', cellDates: true });
+  if (await saveFile(`bubudex-${todayISO()}.xlsx`, buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')) toast('File Excel esportato');
+}
+async function readSpreadsheet(file) {
+  const X = await loadXLSX();
+  const buf = await file.arrayBuffer();
+  const wb = X.read(buf, { type: 'array', cellDates: true });
+  const name = wb.SheetNames.find(n => /moviment|transaz|transaction|estratto/i.test(n)) || wb.SheetNames[0];
+  const rows = X.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: '' });
+  return rows.map(r => r.map(c => c instanceof Date ? new Date(Math.round(c.getTime() / 864e5) * 864e5).toISOString().slice(0, 10) : typeof c === 'number' ? String(c) : String(c ?? '').trim())).filter(r => r.some(c => c !== ''));
+}
+
 /* ---------- import CSV ---------- */
 function parseCSV(text) {
   text = text.replace(/^﻿/, '');
@@ -1468,6 +1530,9 @@ function guessMap(headers) {
   m.date = find(/data\s*(contab|oper)/i); if (m.date < 0) m.date = find(/^data|date|giorno/i); if (m.date < 0) m.date = find(/valuta/i);
   m.desc = headers.findIndex((h, i) => i !== m.date && /descr|causale|dettagl|benefic|esercente|merchant|memo|nota|operazione/i.test(h));
   m.amount = find(/importo|amount|ammontare|valore|euro|eur\b/i);
+  m.cat = find(/categoria|category/i);
+  m.kind = find(/^tipo$|^type$/i);
+  m.paid = find(/pagata da|paid by/i);
   m.debit = find(/dare|uscit|addebit|debit|spese/i);
   m.credit = find(/avere|entrat|accredit|credit/i);
   return m;
@@ -1477,7 +1542,7 @@ function importModal() {
   if (!accs.length) { toast('Crea prima un conto su cui importare i movimenti.', true); return; }
   Object.assign(IMP, { rows: [], skip: 0, header: true, map: {}, mode: 'single', invert: false, accountId: S.ui.fAcc || accs[0].v, fileName: '' });
   const m = $('#modal');
-  m.innerHTML = `<div class="sheet wide" role="dialog" aria-modal="true" aria-labelledby="m-title"><header><h2 id="m-title">Importa estratto conto (CSV)</h2><button class="icon-btn" type="button" data-act="close" aria-label="Chiudi">×</button></header><div class="body" id="imp-body"></div></div>`;
+  m.innerHTML = `<div class="sheet wide" role="dialog" aria-modal="true" aria-labelledby="m-title"><header><h2 id="m-title">Importa movimenti (CSV o Excel)</h2><button class="icon-btn" type="button" data-act="close" aria-label="Chiudi">×</button></header><div class="body" id="imp-body"></div></div>`;
   m.hidden = false;
   renderImport();
 }
@@ -1496,6 +1561,7 @@ function impConvert() {
     else { const d = parseNum(r[IMP.map.debit]), c = parseNum(r[IMP.map.credit]); amt = (isNaN(c) ? 0 : Math.abs(c)) - (isNaN(d) ? 0 : Math.abs(d)); }
     if (IMP.invert) amt = -amt;
     if (!date || !amt || isNaN(amt)) { bad++; continue; }
+    if (IMP.map.kind >= 0 && /giroconto|accantonamento|transfer/i.test(r[IMP.map.kind] || '')) { bad++; continue; }
     const desc = (IMP.map.desc >= 0 ? r[IMP.map.desc] : '') || '';
     const kind = amt < 0 ? 'spesa' : 'entrata';
     const key = [IMP.accountId, date, amt.toFixed(2), desc.toLowerCase().replace(/\s+/g, ' ').slice(0, 60)].join('|');
@@ -1503,16 +1569,19 @@ function impConvert() {
     let k2 = key, n = 1; while (seen.has(k2)) k2 = key + '#' + (++n); seen.add(k2);
     const low = desc.toLowerCase();
     const rule = rules.find(x => low.includes(String(x.k).toLowerCase()) && cat(x.c)?.kind === kind);
-    out.push({ date, amount: Math.round(Math.abs(amt) * 100) / 100, kind, note: desc.replace(/\s+/g, ' ').slice(0, 140), categoryId: rule ? rule.c : fallback(kind), importKey: k2 });
+    const cname = IMP.map.cat >= 0 ? String(r[IMP.map.cat] || '').trim().toLowerCase() : '';
+    const byName = cname ? S.categories.find(c => c.kind === kind && c.name.toLowerCase() === cname) : null;
+    const paid = IMP.map.paid >= 0 ? String(r[IMP.map.paid] || '').trim() : '';
+    out.push({ date, amount: Math.round(Math.abs(amt) * 100) / 100, kind, note: desc.replace(/\s+/g, ' ').slice(0, 140), categoryId: byName ? byName.id : rule ? rule.c : fallback(kind), importKey: k2, ...(paid && kind === 'spesa' ? { paidBy: paid } : {}) });
   }
   return { out, bad, dup };
 }
 function renderImport() {
   const b = $('#imp-body'); if (!b) return;
   const accSel = `<div class="field"><label for="imp-acc">Conto di destinazione</label><select class="input" id="imp-acc">${accOptions().map(a => `<option value="${esc(a.v)}" ${a.v === IMP.accountId ? 'selected' : ''}>${esc(a.l)}</option>`).join('')}</select></div>`;
-  const fileIn = `<div class="field"><label for="imp-file">File CSV</label><input class="input" type="file" id="imp-file" accept=".csv,.txt,text/csv"></div>`;
+  const fileIn = `<div class="field"><label for="imp-file">File CSV o Excel</label><input class="input" type="file" id="imp-file" accept=".csv,.txt,text/csv,.xlsx,.xls,.ods"></div>`;
   if (!IMP.rows.length) {
-    b.innerHTML = `<div class="row2">${accSel}${fileIn}</div><p class="muted" style="margin:0;font-size:.88rem">Esporta i movimenti dall'home banking in formato CSV. Se hai un file Excel, aprilo e salvalo come CSV. Dopo il caricamento potrai controllare le colonne e un'anteprima prima di importare.</p>`;
+    b.innerHTML = `<div class="row2">${accSel}${fileIn}</div><p class="muted" style="margin:0;font-size:.88rem">Esporta i movimenti dall'home banking in formato CSV o Excel (.xlsx, .xls). Va bene anche un file Excel esportato da Bubudex. Dopo il caricamento potrai controllare le colonne e un'anteprima prima di importare.</p>`;
     return;
   }
   const hdrRow = IMP.rows[IMP.skip] || [];
@@ -1529,6 +1598,7 @@ function renderImport() {
       <div class="field"><label for="imp-date">Colonna data</label><select class="input" id="imp-date" data-map="date">${colOpts('date')}</select></div>
       <div class="field"><label for="imp-desc">Colonna descrizione</label><select class="input" id="imp-desc" data-map="desc">${colOpts('desc', true)}</select></div>
     </div>
+    <div class="row2"><div class="field"><label for="imp-cat">Colonna categoria (facoltativa)</label><select class="input" id="imp-cat" data-map="cat">${colOpts('cat', true)}</select><small class="muted">Se il nome coincide con una tua categoria, la uso al posto delle regole</small></div><div></div></div>
     <div class="field"><label>Importi</label><div class="seg" style="max-width:420px"><button type="button" data-act="imp-mode" data-v="single" aria-pressed="${IMP.mode === 'single'}">Una colonna con segno</button><button type="button" data-act="imp-mode" data-v="split" aria-pressed="${IMP.mode === 'split'}">Colonne Dare / Avere</button></div></div>
     ${IMP.mode === 'single' ? `<div class="row2"><div class="field"><label for="imp-amt">Colonna importo</label><select class="input" id="imp-amt" data-map="amount">${colOpts('amount')}</select></div><div class="field"><label>&nbsp;</label><label class="check"><input type="checkbox" id="imp-inv" ${IMP.invert ? 'checked' : ''}> Inverti il segno (le spese sono positive nel file)</label></div></div>`
       : `<div class="row2"><div class="field"><label for="imp-deb">Colonna uscite (Dare)</label><select class="input" id="imp-deb" data-map="debit">${colOpts('debit', true)}</select></div><div class="field"><label for="imp-cre">Colonna entrate (Avere)</label><select class="input" id="imp-cre" data-map="credit">${colOpts('credit', true)}</select></div></div>`}
@@ -1541,6 +1611,16 @@ function renderImport() {
     <footer style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap"><button type="button" class="btn ghost" data-act="close">Annulla</button><button type="button" class="btn primary" data-act="imp-go" ${out.length ? '' : 'disabled'}>Importa ${out.length} moviment${out.length === 1 ? 'o' : 'i'}</button></footer>`;
 }
 function impLoadFile(file) {
+  if (/\.(xlsx|xlsm|xls|ods)$/i.test(file.name)) {
+    readSpreadsheet(file).then(rows => {
+      if (!rows.length) { toast('Il foglio Excel sembra vuoto.', true); return; }
+      let skip = 0;
+      for (let i = 0; i < Math.min(rows.length, 25); i++) { const r = rows[i]; if (r.length >= 3 && r.some(c => /data|date/i.test(c))) { skip = i; break; } }
+      Object.assign(IMP, { rows, skip, header: true, fileName: file.name });
+      impAutoMap(); renderImport();
+    }).catch(() => toast('Non riesco a leggere il file Excel. Controlla la connessione o salvalo come CSV.', true));
+    return;
+  }
   const read = enc => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsText(file, enc); });
   read('utf-8').then(async txt => {
     if (txt.includes('\uFFFD')) txt = await read('windows-1252');
@@ -1556,7 +1636,7 @@ function impLoadFile(file) {
 function impAutoMap() {
   const h = IMP.rows[IMP.skip] || [];
   const m = guessMap(h);
-  IMP.map = { date: m.date >= 0 ? m.date : 0, desc: m.desc, amount: m.amount >= 0 ? m.amount : Math.max(0, h.length - 1), debit: m.debit, credit: m.credit };
+  IMP.map = { date: m.date >= 0 ? m.date : 0, desc: m.desc, amount: m.amount >= 0 ? m.amount : Math.max(0, h.length - 1), debit: m.debit, credit: m.credit, cat: m.cat, kind: m.kind, paid: m.paid };
   IMP.mode = m.amount < 0 && (m.debit >= 0 || m.credit >= 0) ? 'split' : 'single';
 }
 async function impGo() {
@@ -1648,6 +1728,7 @@ document.addEventListener('click', e => {
   if (a === 'snapshot') return snapshot();
   if (a === 'import') return importModal();
   if (a === 'export') return exportCSV();
+  if (a === 'export-xlsx') return exportXLSX();
   if (a === 'backup') return backup();
   if (a === 'del-demo') return deleteDemo(t);
   if (a === 'imp-reset') { IMP.rows = []; return renderImport(); }
