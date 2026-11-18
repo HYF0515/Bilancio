@@ -287,7 +287,7 @@ html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
 <script>
 (() => {
 "use strict";
-const APP_VERSION = '37';
+const APP_VERSION = '38';
 /* ---------- utilità ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -418,15 +418,24 @@ function valIn(accountId, t) {
   if (cur === BASE) return +t.amount || 0;
   const r = rateOf(cur); return r ? (+t.amount || 0) / r : 0;
 }
+// Saldo del conto: se il saldo iniziale ha una data (openingDate), è il saldo a fine di quel giorno:
+// i movimenti fino a quella data sono già compresi, contano solo quelli successivi.
 function balancesNative(upTo) {
-  const b = {};
-  S.accounts.forEach(a => b[a.id] = +a.openingBalance || 0);
+  const b = {}, od = {};
+  S.accounts.forEach(a => { b[a.id] = +a.openingBalance || 0; od[a.id] = a.openingDate || ''; });
+  const apply = (id, delta, date) => {
+    if (!id) return;
+    if (!(id in b)) { b[id] = 0; od[id] = ''; }
+    const D = od[id];
+    if (D && date <= D) { if (upTo && date > upTo) b[id] -= delta; return; }
+    if (upTo && date > upTo) return;
+    b[id] += delta;
+  };
   for (const t of S.transactions) {
-    if (upTo && t.date > upTo) continue;
     if (t.paidBy) continue;
-    if (t.kind === 'entrata') b[t.accountId] = (b[t.accountId] || 0) + valIn(t.accountId, t);
-    else if (t.kind === 'spesa') b[t.accountId] = (b[t.accountId] || 0) - valIn(t.accountId, t);
-    else if (t.kind === 'giroconto' || t.kind === 'accantonamento') { b[t.accountId] = (b[t.accountId] || 0) - valIn(t.accountId, t); b[t.toAccountId] = (b[t.toAccountId] || 0) + (t.toAmount != null && txCur(t) !== accCur(t.toAccountId) && t.toCurrency === accCur(t.toAccountId) ? +t.toAmount : valIn(t.toAccountId, t)); }
+    if (t.kind === 'entrata') apply(t.accountId, valIn(t.accountId, t), t.date);
+    else if (t.kind === 'spesa') apply(t.accountId, -valIn(t.accountId, t), t.date);
+    else if (t.kind === 'giroconto' || t.kind === 'accantonamento') { apply(t.accountId, -valIn(t.accountId, t), t.date); apply(t.toAccountId, (t.toAmount != null && txCur(t) !== accCur(t.toAccountId) && t.toCurrency === accCur(t.toAccountId) ? +t.toAmount : valIn(t.toAccountId, t)), t.date); }
   }
   return b;
 }
@@ -1389,7 +1398,8 @@ function accForm(a) {
     title: isNew ? 'Nuovo conto' : 'Modifica conto',
     fields: [
       { id: 'name', label: 'Nome', value: a.name || '', placeholder: 'Es. Conto Intesa', required: true },
-      [{ id: 'type', label: 'Tipo', type: 'select', value: a.type, options: Object.entries(ACC_TYPES).map(([v, l]) => ({ v, l })) }, { id: 'openingBalance', label: 'Saldo iniziale', num: true, value: a.openingBalance ?? 0, hint: 'Nella valuta del conto, prima del primo movimento registrato' }],
+      [{ id: 'type', label: 'Tipo', type: 'select', value: a.type, options: Object.entries(ACC_TYPES).map(([v, l]) => ({ v, l })) }, { id: 'openingBalance', label: 'Saldo', num: true, value: a.openingBalance ?? 0, hint: 'Nella valuta del conto' }],
+      { id: 'openingDate', label: 'Saldo alla data (facoltativa)', type: 'date', value: a.openingDate || '', hint: 'Il saldo che hai scritto è quello a fine giornata di questa data: i movimenti fino a quel giorno sono già compresi, contano solo quelli successivi. Lascia vuoto se è il saldo prima di tutti i movimenti registrati.' },
       { id: 'currency', label: 'Valuta del conto', type: 'select', value: a.currency || BASE, options: curOptions() },
       { id: 'reserve', label: 'Fondo di accantonamento: le spese pagate da questo conto sono già state contate quando hai accantonato, quindi non contano di nuovo come uscite', type: 'checkbox', value: !!a.reserve },
       { id: 'color', label: 'Colore', type: 'color', value: a.color, palette: MACARON },
@@ -1397,7 +1407,7 @@ function accForm(a) {
     ],
     validate: v => !v.name.trim() ? 'Dai un nome al conto.' : isNaN(parseNum(v.openingBalance || '0')) ? 'Il saldo iniziale non è un numero valido.' : '',
     async onSubmit(v) {
-      const doc = { ...strip(a), name: v.name.trim(), type: v.type, currency: v.currency || BASE, reserve: !!v.reserve, openingBalance: parseNum(v.openingBalance || '0') || 0, color: v.color || a.color, archived: !!v.archived };
+      const doc = { ...strip(a), name: v.name.trim(), type: v.type, currency: v.currency || BASE, reserve: !!v.reserve, openingBalance: parseNum(v.openingBalance || '0') || 0, openingDate: v.openingDate || '', color: v.color || a.color, archived: !!v.archived };
       const ok = await put('accounts', a.id || uid(), doc); ok && toast(isNew ? 'Conto creato' : 'Conto aggiornato'); return ok;
     },
     deleteLabel: used ? 'Elimina (ha movimenti)' : 'Elimina',
@@ -1598,7 +1608,7 @@ async function exportXLSX() {
     'Proprietà': propById ? (propById(t.propertyId)?.name || '') : '', 'Pagata da': t.paidBy || ''
   }));
   const balN = balancesNative(), bal = balances();
-  const conti = S.accounts.map(a => ({ 'Nome': a.name, 'Tipo': ACC_TYPES[a.type] || a.type, 'Valuta': a.currency || BASE, 'Saldo iniziale': r2(a.openingBalance), 'Saldo attuale': r2(balN[a.id]), 'Saldo in €': r2(bal[a.id]), 'Fondo di accantonamento': a.reserve ? 'Sì' : 'No', 'Archiviato': a.archived ? 'Sì' : 'No' }));
+  const conti = S.accounts.map(a => ({ 'Nome': a.name, 'Tipo': ACC_TYPES[a.type] || a.type, 'Valuta': a.currency || BASE, 'Saldo iniziale': r2(a.openingBalance), 'Saldo alla data': a.openingDate ? d(a.openingDate) : '', 'Saldo attuale': r2(balN[a.id]), 'Saldo in €': r2(bal[a.id]), 'Fondo di accantonamento': a.reserve ? 'Sì' : 'No', 'Archiviato': a.archived ? 'Sì' : 'No' }));
   const cats = [...S.categories].sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name, 'it')).map(c => ({ 'Nome': c.name, 'Tipo': c.kind === 'spesa' ? 'Spesa' : 'Entrata', 'Budget mensile': r2((S.settings.budgets || {})[c.id]) || '', 'Budget annuale': c.kind === 'spesa' && annualBudget(c.id) ? r2(annualBudget(c.id)) : '' }));
   const props = (S.properties || []).map(p => { const ms = mortgageStats(p); return { 'Nome': p.name, 'Indirizzo': p.address || '', 'Prezzo d\'acquisto': r2(p.purchasePrice) || '', 'Valore stimato': r2(p.currentValue) || '', 'Totale mutuo': ms ? r2(ms.principal) : '', 'Debito residuo': ms ? r2(ms.res) : '', 'Rata mensile': ms && ms.pay ? r2(ms.pay) : '', 'Tasso (TAN %)': p.mortgage?.rate ?? '' }; });
   const inv = S.holdings.map(h => ({ 'Nome': h.name, 'Ticker / ISIN': h.ticker || '', 'Classe': h.assetClass || '', 'Quantità': +h.quantity || 0, 'Prezzo medio (€)': r2(h.avgCost), 'Prezzo attuale (€)': r2(h.price), 'Valore (€)': r2(holdingValue(h)), 'Data prezzo': d(h.priceDate) }));
