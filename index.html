@@ -25,17 +25,20 @@
   --f-display:"Bricolage Grotesque", "Inter", system-ui, sans-serif;
   --f-body:"Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --f-data:"IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --chart-in:#9FD8B4; --chart-out:#AAB6F3; --chart-over:#F4A9B8;
   --r:10px; --shadow:0 1px 2px rgba(20,25,35,.06), 0 4px 16px rgba(20,25,35,.05);
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
   --bg:#0E1117; --surface:#161A22; --surface-2:#1D222C; --line:#2A303C; --fg:#E7EAF0; --muted:#98A1B2;
   --accent:#8C9BFF; --accent-soft:#232948; --on-accent:#0E1117;
   --pos:#45C887; --neg:#F07A70; --warn:#E2AA4E; --pos-soft:#15301F; --neg-soft:#3A1A18; --warn-soft:#352812;
+  --chart-in:#8FCFA7; --chart-out:#9DA9EE; --chart-over:#EE9AAB;
   --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark }}
 :root[data-theme="dark"]{
   --bg:#0E1117; --surface:#161A22; --surface-2:#1D222C; --line:#2A303C; --fg:#E7EAF0; --muted:#98A1B2;
   --accent:#8C9BFF; --accent-soft:#232948; --on-accent:#0E1117;
   --pos:#45C887; --neg:#F07A70; --warn:#E2AA4E; --pos-soft:#15301F; --neg-soft:#3A1A18; --warn-soft:#352812;
+  --chart-in:#8FCFA7; --chart-out:#9DA9EE; --chart-over:#EE9AAB;
   --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark }
 *{box-sizing:border-box}
 html,body{min-height:100%}
@@ -671,7 +674,7 @@ VIEWS.mensile = () => {
     <div class="kpi"><span class="eyebrow">Risparmio</span><span class="v num ${st.net < 0 ? 'neg' : ''}">${money0(st.net)}</span><span class="s">Tasso di risparmio ${pct(st.rate)}</span></div>
   </section>
   <div class="grid g-3-1">
-    <section class="panel"><div class="panel-h"><h2>Entrate e uscite, ultimi 12 mesi</h2><div class="chart-legend"><span><i class="dot" style="background:var(--pos)"></i>Entrate</span><span><i class="dot" style="background:var(--accent)"></i>Uscite</span></div></div><div class="chart" data-chart="cashflow"></div></section>
+    <section class="panel"><div class="panel-h"><h2>Entrate e uscite, ultimi 12 mesi</h2><div class="chart-legend"><span><i class="dot" style="background:var(--chart-in)"></i>Entrate</span><span><i class="dot" style="background:var(--chart-out)"></i>Uscite</span></div></div><div class="chart" data-chart="cashflow"></div></section>
     <section class="panel"><div class="panel-h"><h2>Da tenere d'occhio</h2></div>
       ${alerts.length ? alerts.map(x => `<div class="list-row"><div class="l"><i class="dot" style="background:${esc(x.c.color)}"></i><span>${esc(x.c.name)}</span></div><span class="pill ${x.s > x.b ? 'neg' : 'warn'}">${pct(x.s / x.b)} del budget</span></div>`).join('') : `<p class="muted" style="margin:0 0 10px">Nessuna categoria vicina al limite di budget.</p>`}
       <h3 style="margin:16px 0 4px">Prossime scadenze</h3>
@@ -868,7 +871,7 @@ function yearBudgetPanel(year) {
       <div class="kpi"><span class="eyebrow">${diff >= 0 ? 'Sotto budget' : 'Sopra budget'}</span><span class="v num ${diff >= 0 ? 'pos' : 'neg'}">${money0(Math.abs(diff))}</span><span class="s">${pct(y.spent / y.ytdB)} del budget usato</span></div>
       ${projTile}
     </div>
-    <div class="chart-legend" style="margin-bottom:6px"><span><i class="dot" style="background:var(--accent)"></i>Entro il budget</span><span><i class="dot" style="background:var(--neg)"></i>Oltre il budget</span><span><i class="dot" style="background:var(--muted)"></i>Budget mensile</span></div>
+    <div class="chart-legend" style="margin-bottom:6px"><span><i class="dot" style="background:var(--chart-out)"></i>Entro il budget</span><span><i class="dot" style="background:var(--chart-over)"></i>Oltre il budget</span><span><i class="dot" style="background:var(--muted)"></i>Budget mensile</span></div>
     <div class="chart" data-chart="yearbudget" data-year="${year}"></div>
     <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Categoria</th><th class="r">Speso</th><th class="r hide-m">Budget a oggi</th><th class="r">Scostamento</th></tr></thead><tbody>
       ${rows.map(r => { const ratio = r.b ? r.s / r.b : 0, cls = ratio > 1 ? 'over' : ratio >= .9 ? 'near' : '', d = r.b - r.s;
@@ -887,7 +890,7 @@ function yearBudgetChart(W, year) {
   for (let i = 0; i <= 4; i++) { const v = max * i / 4; g += `<line class="grid-l" x1="${pl}" x2="${W - pr}" y1="${yy(v)}" y2="${yy(v)}"/><text x="${pl - 6}" y="${yy(v) + 4}" text-anchor="end">${kfmt(v)}</text>`; }
   y.byMonth.forEach((v, i) => {
     const cx = pl + bw * i + bw / 2, future = i >= y.elapsed;
-    const fill = v > y.monthlyB ? 'var(--neg)' : 'var(--accent)';
+    const fill = v > y.monthlyB ? 'var(--chart-over)' : 'var(--chart-out)';
     if (v > 0) g += `<rect x="${cx - w / 2}" y="${yy(v)}" width="${w}" height="${Math.max(0, pt + ih - yy(v))}" rx="2" fill="${fill}" ${future ? 'fill-opacity=".35"' : ''}><title>${MESI[i]} ${year} · Speso ${money(v)} su ${money(y.monthlyB)}</title></rect>`;
     if (W > 420 || i % 2 === 0) g += `<text x="${cx}" y="${H - 6}" text-anchor="middle" ${future ? 'style="opacity:.55"' : ''}>${MESI_B[i]}</text>`;
   });
@@ -1076,8 +1079,8 @@ function cashflowChart(W) {
   for (let i = 0; i <= 4; i++) { const v = max * i / 4; g += `<line class="grid-l" x1="${pl}" x2="${W - pr}" y1="${y(v)}" y2="${y(v)}"/><text x="${pl - 6}" y="${y(v) + 4}" text-anchor="end">${kfmt(v)}</text>`; }
   rows.forEach((r, i) => {
     const cx = pl + bw * i + bw / 2;
-    g += `<rect x="${cx - w - 1}" y="${y(r.inc)}" width="${w}" height="${Math.max(0, pt + ih - y(r.inc))}" rx="2" fill="var(--pos)"><title>${ymLabel(r.m)} · Entrate ${money(r.inc)}</title></rect>`;
-    g += `<rect x="${cx + 1}" y="${y(r.exp)}" width="${w}" height="${Math.max(0, pt + ih - y(r.exp))}" rx="2" fill="var(--accent)"><title>${ymLabel(r.m)} · Uscite ${money(r.exp)}</title></rect>`;
+    g += `<rect x="${cx - w - 1}" y="${y(r.inc)}" width="${w}" height="${Math.max(0, pt + ih - y(r.inc))}" rx="3" fill="var(--chart-in)"><title>${ymLabel(r.m)} · Entrate ${money(r.inc)}</title></rect>`;
+    g += `<rect x="${cx + 1}" y="${y(r.exp)}" width="${w}" height="${Math.max(0, pt + ih - y(r.exp))}" rx="3" fill="var(--chart-out)"><title>${ymLabel(r.m)} · Uscite ${money(r.exp)}</title></rect>`;
     if (W > 420 || i % 2 === 1) g += `<text x="${cx}" y="${H - 6}" text-anchor="middle" ${r.m === end ? 'style="fill:var(--fg);font-weight:600"' : ''}>${ymShort(r.m)}</text>`;
   });
   return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Entrate e uscite degli ultimi 12 mesi">${g}</svg>`;
