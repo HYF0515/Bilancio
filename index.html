@@ -263,6 +263,7 @@ body.locked .app{grid-template-columns:minmax(0,1fr)}
 .prop-actions::-webkit-scrollbar{display:none}
 .prop-actions .btn{flex:none;white-space:nowrap}
 .page-total{margin:-4px 0 2px}.page-total .v{font-family:var(--f-display);font-size:1.9rem;font-weight:700;font-variant-numeric:tabular-nums}
+.tab-tag{font-size:.7rem;opacity:.75;margin-left:4px;font-weight:500}
 .prop-addr{margin:-4px 0 10px;font-size:.85rem}
 .pc{font-size:.78em;letter-spacing:0}
 .splash{position:fixed;inset:0;z-index:200;background:#FBF7F2;transition:opacity .35s ease}
@@ -403,7 +404,7 @@ html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
 <script>
 (() => {
 "use strict";
-const APP_VERSION = '60';
+const APP_VERSION = '61';
 /* ---------- utilità ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -1006,8 +1007,9 @@ VIEWS.proprieta = () => {
   const list = propsSorted(), pr = curProp();
   if (!pr) return `<div class="head with-nav"><div><div class="eyebrow">Proprietà</div><h1>Le tue proprietà</h1></div><div class="head-actions">${eyeBtn()}</div></div>
     <section class="panel empty"><h2>Aggiungi la tua prima proprietà</h2><p>Per esempio la casa in città o quella al mare. Quando registri una spesa (luce, condominio, rata del mutuo…) potrai scegliere a quale proprietà si riferisce, e qui vedrai mutuo pagato, debito residuo e spese di ciascuna.</p><button class="btn primary" data-act="new-prop">+ Aggiungi proprietà</button></section>`;
-  const tabs = `<div class="prop-tabs" role="tablist" aria-label="Proprietà">${list.map(p => `<button class="prop-tab" role="tab" aria-selected="${p.id === pr.id}" data-act="prop-sel" data-id="${esc(p.id)}">${esc(p.name)}</button>`).join('')}<button class="prop-tab add" data-act="new-prop">+ Aggiungi</button></div>`;
-  const ms = mortgageStats(pr), year = S.ui.propYear, mcat = pr.mortgage?.categoryId || '';
+  const tabs = `<div class="prop-tabs" role="tablist" aria-label="Proprietà">${list.map(p => `<button class="prop-tab" role="tab" aria-selected="${p.id === pr.id}" data-act="prop-sel" data-id="${esc(p.id)}">${esc(p.name)}${p.kind === 'rent' ? ' <span class="tab-tag">affitto</span>' : ''}</button>`).join('')}<button class="prop-tab add" data-act="new-prop">+ Aggiungi</button></div>`;
+  const isRent = pr.kind === 'rent', rent = pr.rent || {};
+  const ms = isRent ? null : mortgageStats(pr), year = S.ui.propYear, mcat = (isRent ? rent.categoryId : pr.mortgage?.categoryId) || '';
   const all = S.transactions.filter(t => t.propertyId === pr.id && t.kind !== 'giroconto');
   const ptx = sortTx(all.filter(t => String(t.date).startsWith(year)));
   const outsAll = ptx.filter(t => t.kind === 'spesa'), outs = outsAll.filter(t => !t.paidBy), others = outsAll.filter(t => t.paidBy), ins = ptx.filter(t => t.kind === 'entrata');
@@ -1021,12 +1023,15 @@ VIEWS.proprieta = () => {
   const yearNav = `<div class="month-nav"><button class="icon-btn" data-act="prop-year" data-d="-1" aria-label="Anno precedente">‹</button>${yearPick('propYear')}<button class="icon-btn" data-act="prop-year" data-d="1" aria-label="Anno successivo">›</button></div>`;
   const paidCap = ms ? ms.principal - ms.res : 0;
   const bar = ms ? `<div class="hero-bar"><div class="bar" style="height:8px"><i style="width:${Math.min(100, ms.pctRepaid * 100).toFixed(1)}%;background:var(--pos)"></i></div><div class="hero-bar-l"><span>Pagato ${money0(paidCap)}</span><span>Mutuo ${money0(ms.principal)}</span></div></div>` : '';
-  const summary = ms
+  const summary = isRent
+    ? heroCard('Totale ' + year, money0(tot), [['Affitto ' + year, 'out', money0(mort), mort ? 'neg' : ''], ['Spese ' + year, 'out', money0(exp), exp ? 'neg' : ''], ['Al mese', 'neu', (() => { const n = new Set(outs.map(t => ymOf(t.date))).size; return n ? money0(tot / n) : '—'; })()]],
+        rent.amount || rent.end ? `<div class="hero-bar-l"><span>${rent.amount ? 'Canone ' + money0(+rent.amount) + '/mese' : ''}</span><span>${rent.end ? 'Scadenza ' + dShort(rent.end) : ''}</span></div>` : '')
+    : ms
     ? heroCard('Rimane da pagare', money0(ms.res), [['Pagato', 'in', money0(paidCap), 'pos'], ['Spese ' + year, 'out', money0(exp), exp ? 'neg' : ''], ['Totale ' + year, 'neu', money0(tot)]], bar)
     : heroCard('Totale ' + year, money0(tot), [['Spese ' + year, 'out', money0(exp), 'neg'], ['Pagate da altri', 'neu', money0(othersTot)], ['Entrate', 'in', money0(inc), 'pos']], '', tot ? 'neg' : '');
-  const actions = `<div class="prop-actions"><button class="btn small" data-act="edit-prop" data-id="${esc(pr.id)}">Modifica dati</button>${ms ? `<button class="btn small" data-act="prop-pay">+ Rata mutuo</button>` : ''}<button class="btn small primary" data-act="prop-exp">+ Spesa</button></div>`;
+  const actions = `<div class="prop-actions"><button class="btn small" data-act="edit-prop" data-id="${esc(pr.id)}">Modifica dati</button>${ms ? `<button class="btn small" data-act="prop-pay">+ Rata mutuo</button>` : ''}${isRent ? `<button class="btn small" data-act="prop-rent">+ Affitto</button>` : ''}<button class="btn small primary" data-act="prop-exp">+ Spesa</button></div>`;
   // titolo della sezione in alto come nelle altre pagine, poi le proprietà e i pulsanti su una sola riga
-  const head = `<div class="head with-nav"><div><div class="eyebrow">Proprietà</div><h1>${esc(pr.name)}</h1></div><div class="head-actions">${eyeBtn()}${yearNav}</div></div>${tabs}${pr.address ? `<p class="muted prop-addr">${esc(pr.address)}</p>` : ''}`;
+  const head = `<div class="head with-nav"><div><div class="eyebrow">Proprietà</div><h1>${esc(pr.name)}</h1></div><div class="head-actions">${eyeBtn()}${yearNav}</div></div>${tabs}${pr.address || isRent ? `<p class="muted prop-addr">${[isRent ? 'In affitto' : '', pr.address].filter(Boolean).map(esc).join(' · ')}</p>` : ''}`;
   let mortHTML = '';
   if (ms) {
     const last = ms.rows.slice(-6).reverse();
@@ -1043,7 +1048,7 @@ VIEWS.proprieta = () => {
       </tbody></table></div>` : `<p class="muted" style="margin:0">Nessuna rata registrata${pr.mortgage.refDate || pr.mortgage.startDate ? ' dopo il ' + dShort(pr.mortgage.refDate || pr.mortgage.startDate) : ''}. Usa “+ Rata mutuo” per aggiungere la prima.</p>`}
     </section>`;
   }
-  const valueHTML = value || +pr.purchasePrice ? `<section class="panel"><div class="panel-h"><h2>Valore dell'immobile</h2></div>
+  const valueHTML = !isRent && (value || +pr.purchasePrice) ? `<section class="panel"><div class="panel-h"><h2>Valore dell'immobile</h2></div>
     <div class="kpis"><div class="kpi"><span class="eyebrow">Valore stimato</span><span class="v num">${value ? money0(value) : '—'}</span><span class="s">${pr.valueDate ? 'Stima del ' + dShort(pr.valueDate) : '&nbsp;'}</span></div>
     <div class="kpi"><span class="eyebrow">Prezzo d'acquisto</span><span class="v num">${+pr.purchasePrice ? money0(+pr.purchasePrice) : '—'}</span><span class="s">${pr.purchaseDate ? dShort(pr.purchaseDate) : '&nbsp;'}</span></div>
     <div class="kpi"><span class="eyebrow">Quota di tua proprietà</span><span class="v num ${value && ms && value - ms.res < 0 ? 'neg' : 'pos'}">${value ? money0(value - (ms ? ms.res : 0)) : '—'}</span><span class="s">Valore meno debito residuo</span></div>
@@ -1067,9 +1072,14 @@ function propForm(pr) {
     title: isNew ? 'Nuova proprietà' : 'Dati di ' + pr.name, wide: true,
     intro: `<p class="muted" style="margin:0;font-size:.88rem">Compila quello che sai: puoi aggiornare questi dati in qualsiasi momento. Se l'immobile non ha un mutuo, lascia vuota quella parte.</p>`,
     fields: [
+      { id: 'kind', type: 'seg', label: 'Tipo', value: pr.kind || 'owned', options: [{ v: 'owned', l: 'Di proprietà' }, { v: 'rent', l: 'In affitto' }] },
       [{ id: 'name', label: 'Nome', value: pr.name || '', placeholder: 'Es. Casa in città, Casa al mare', required: true }, { id: 'address', label: 'Indirizzo (facoltativo)', value: pr.address || '' }],
       [{ id: 'purchasePrice', label: 'Prezzo d\'acquisto (€)', num: true, value: pr.purchasePrice ?? '' }, { id: 'purchaseDate', label: 'Data d\'acquisto', type: 'date', value: pr.purchaseDate || '' }],
       [{ id: 'currentValue', label: 'Valore stimato oggi (€)', num: true, value: pr.currentValue ?? '' }, { id: 'valueDate', label: 'Data della stima', type: 'date', value: pr.valueDate || todayISO() }],
+      { id: 'h-r', type: 'heading', label: 'Affitto' },
+      [{ id: 'rentAmount', label: 'Canone mensile (€)', num: true, value: pr.rent?.amount ?? '' }, { id: 'rentCat', label: 'Categoria dell\'affitto', type: 'select', value: pr.rent?.categoryId || guessCat(/affitt|locaz|canone/i), options: [{ v: '', l: '— scegli —' }, ...catOptions('spesa')] }],
+      [{ id: 'leaseStart', label: 'Inizio contratto', type: 'date', value: pr.rent?.start || '' }, { id: 'leaseEnd', label: 'Scadenza contratto', type: 'date', value: pr.rent?.end || '' }],
+      [{ id: 'deposit', label: 'Cauzione (€)', num: true, value: pr.rent?.deposit ?? '' }, { id: 'landlord', label: 'Proprietario', value: pr.rent?.landlord || '' }],
       { id: 'h-m', type: 'heading', label: 'Mutuo' },
       [{ id: 'bank', label: 'Banca', value: m.bank || '' }, { id: 'principal', label: 'Totale prestito mutuo (€)', num: true, value: m.principal ?? '' }],
       [{ id: 'startDate', label: 'Data prima rata', type: 'date', value: m.startDate || '' }, { id: 'years', label: 'Durata (anni)', num: true, value: m.years ?? '' }],
@@ -1077,8 +1087,14 @@ function propForm(pr) {
       [{ id: 'residual', label: 'Debito residuo a una data (facoltativo)', num: true, value: m.residual ?? '', hint: 'Utile se il mutuo è iniziato prima di usare l\'app: lo trovi sul piano di ammortamento' }, { id: 'refDate', label: 'Alla data del', type: 'date', value: m.refDate || '' }],
       { id: 'categoryId', label: 'Categoria delle rate del mutuo', type: 'select', value: m.categoryId || guessCat(/mutuo/i), options: [{ v: '', l: '— scegli —' }, ...catOptions('spesa')] }
     ],
+    onChange(v, form) {
+      const rent = v.kind === 'rent';
+      ['purchasePrice', 'purchaseDate', 'currentValue', 'valueDate', 'h-m', 'bank', 'principal', 'startDate', 'years', 'rate', 'monthlyPayment', 'residual', 'refDate', 'categoryId'].forEach(id => showField(form, id, !rent));
+      ['h-r', 'rentAmount', 'rentCat', 'leaseStart', 'leaseEnd', 'deposit', 'landlord'].forEach(id => showField(form, id, rent));
+    },
     validate(v) {
       if (!v.name.trim()) return 'Dai un nome alla proprietà.';
+      if (v.kind === 'rent') { if (v.rentAmount && !(parseNum(v.rentAmount) > 0)) return 'Il canone non è un numero valido.'; if (parseNum(v.rentAmount) > 0 && !v.rentCat) return 'Scegli la categoria in cui registri l\'affitto.'; return; }
       if (S.properties.some(p => p.id !== pr.id && p.name.trim().toLowerCase() === v.name.trim().toLowerCase())) return 'Esiste già una proprietà con questo nome.';
       if (v.principal && !(parseNum(v.principal) > 0)) return 'Il totale del mutuo non è un numero valido.';
       if (parseNum(v.principal) > 0 && !v.categoryId) return 'Scegli la categoria in cui registri le rate del mutuo (puoi crearla in Impostazioni → Categorie).';
@@ -1087,7 +1103,13 @@ function propForm(pr) {
     async onSubmit(v) {
       const n = x => { const k = parseNum(x); return Number.isFinite(k) ? k : null; };
       const id = pr.id || uid();
-      const doc = { name: v.name.trim(), address: v.address.trim(), purchasePrice: n(v.purchasePrice), purchaseDate: v.purchaseDate, currentValue: n(v.currentValue), valueDate: v.valueDate, createdAt: pr.createdAt || Date.now(),
+      if (v.kind === 'rent') {
+        const ok = await put('properties', id, { name: v.name.trim(), address: v.address.trim(), kind: 'rent', createdAt: pr.createdAt || Date.now(), mortgage: null,
+          rent: { amount: n(v.rentAmount), categoryId: v.rentCat, start: v.leaseStart, end: v.leaseEnd, deposit: n(v.deposit), landlord: v.landlord.trim() } });
+        if (ok) { S.ui.propId = id; toast(isNew ? 'Casa in affitto aggiunta' : 'Dati salvati'); }
+        return ok;
+      }
+      const doc = { kind: 'owned', name: v.name.trim(), address: v.address.trim(), purchasePrice: n(v.purchasePrice), purchaseDate: v.purchaseDate, currentValue: n(v.currentValue), valueDate: v.valueDate, createdAt: pr.createdAt || Date.now(),
         mortgage: { bank: v.bank.trim(), principal: n(v.principal), startDate: v.startDate, years: n(v.years), rate: n(v.rate), monthlyPayment: n(v.monthlyPayment), residual: n(v.residual), refDate: v.residual ? v.refDate : '', categoryId: v.categoryId } };
       if (!doc.mortgage.monthlyPayment && doc.mortgage.principal && doc.mortgage.years) doc.mortgage.monthlyPayment = Math.round(annuity(doc.mortgage.principal, doc.mortgage.rate || 0, doc.mortgage.years) * 100) / 100;
       const ok = await put('properties', id, doc);
@@ -1479,7 +1501,7 @@ function fieldHTML(f) {
   if (f.type === 'select') inner = `<select class="input" id="${id}" name="${f.id}">${f.options.map(o => o.group ? `<optgroup label="${esc(o.group)}">${o.items.map(i => `<option value="${esc(i.v)}" ${String(i.v) === String(v) ? 'selected' : ''}>${esc(i.l)}</option>`).join('')}</optgroup>` : `<option value="${esc(o.v)}" ${String(o.v) === String(v) ? 'selected' : ''}>${esc(o.l)}</option>`).join('')}</select>`;
   else if (f.type === 'seg') return `<div class="field" data-f="${f.id}"><input type="hidden" name="${f.id}" id="${id}" value="${esc(v)}"><div class="seg" role="group" aria-label="${esc(f.label)}">${f.options.map(o => `<button type="button" data-seg="${f.id}" data-v="${esc(o.v)}" aria-pressed="${o.v === v}">${esc(o.l)}</button>`).join('')}</div></div>`;
   else if (f.type === 'icon') return `<div class="field" data-f="${f.id}"><label>${esc(f.label)}</label><div class="icon-pick" role="radiogroup" aria-label="${esc(f.label)}">${Object.keys(CAT_ICONS).map((k, i) => `<label title="${k}"><input type="radio" name="${f.id}" value="${k}" ${k === v ? 'checked' : ''} ${i === 0 ? `id="${id}"` : ''}><span><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${CAT_ICONS[k]}</svg></span></label>`).join('')}</div></div>`;
-  else if (f.type === 'heading') return `<div class="form-h">${esc(f.label)}</div>`;
+  else if (f.type === 'heading') return `<div class="form-h" data-f="${f.id}">${esc(f.label)}</div>`;
   else if (f.type === 'checks') return `<div class="field" data-f="${f.id}"><label>${esc(f.label)}</label><div class="checks">${f.options.map((o, i) => `<label class="check"><input type="checkbox" data-multi name="${f.id}" id="${id}-${i}" value="${esc(o.v)}" ${(v || []).includes(o.v) ? 'checked' : ''}> ${esc(o.l)}</label>`).join('')}</div></div>`;
   else if (f.type === 'checkbox') return `<label class="check" data-f="${f.id}"><input type="checkbox" id="${id}" name="${f.id}" ${v ? 'checked' : ''}> ${esc(f.label)}</label>`;
   else if (f.type === 'color') inner = `<div style="display:flex;gap:6px;flex-wrap:wrap">${(f.palette || PALETTE).map(c => `<label style="cursor:pointer"><input type="radio" name="${f.id}" value="${c}" ${c === v ? 'checked' : ''} style="position:absolute;opacity:0" ${c === (f.palette || PALETTE)[0] ? `id="${id}"` : ''}><span class="dot" style="width:24px;height:24px;background:${c};outline:${c === v ? '2px solid var(--fg)' : 'none'};outline-offset:2px" data-swatch></span></label>`).join('')}</div>`;
@@ -1881,7 +1903,7 @@ async function exportXLSX() {
   const balN = balancesNative(), bal = balances();
   const conti = S.accounts.map(a => ({ 'Nome': a.name, 'Tipo': ACC_TYPES[a.type] || a.type, 'Valuta': a.currency || BASE, 'Saldo iniziale': r2(a.openingBalance), 'Saldo alla data': a.openingDate ? d(a.openingDate) : '', 'Saldo attuale': r2(balN[a.id]), 'Saldo in €': r2(bal[a.id]), 'Fondo di accantonamento': a.reserve ? 'Sì' : 'No', 'Archiviato': a.archived ? 'Sì' : 'No' }));
   const cats = [...S.categories].sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name, 'it')).map(c => ({ 'Nome': c.name, 'Tipo': c.kind === 'spesa' ? 'Spesa' : 'Entrata', 'Budget mensile': r2((S.settings.budgets || {})[c.id]) || '', 'Budget annuale': c.kind === 'spesa' && annualBudget(c.id) ? r2(annualBudget(c.id)) : '' }));
-  const props = (S.properties || []).map(p => { const ms = mortgageStats(p); return { 'Nome': p.name, 'Indirizzo': p.address || '', 'Prezzo d\'acquisto': r2(p.purchasePrice) || '', 'Valore stimato': r2(p.currentValue) || '', 'Totale mutuo': ms ? r2(ms.principal) : '', 'Debito residuo': ms ? r2(ms.res) : '', 'Rata mensile': ms && ms.pay ? r2(ms.pay) : '', 'Tasso (TAN %)': p.mortgage?.rate ?? '' }; });
+  const props = (S.properties || []).map(p => { const ms = p.kind === 'rent' ? null : mortgageStats(p); return { 'Nome': p.name, 'Tipo': p.kind === 'rent' ? 'In affitto' : 'Di proprietà', 'Indirizzo': p.address || '', 'Prezzo d\'acquisto': r2(p.purchasePrice) || '', 'Valore stimato': r2(p.currentValue) || '', 'Totale mutuo': ms ? r2(ms.principal) : '', 'Debito residuo': ms ? r2(ms.res) : '', 'Rata mensile': ms && ms.pay ? r2(ms.pay) : '', 'Tasso (TAN %)': p.mortgage?.rate ?? '' }; });
   const inv = S.holdings.map(h => ({ 'Nome': h.name, 'Ticker / ISIN': h.ticker || '', 'Classe': h.assetClass || '', 'Quantità': +h.quantity || 0, 'Prezzo medio (€)': r2(h.avgCost), 'Prezzo attuale (€)': r2(h.price), 'Valore (€)': r2(holdingValue(h)), 'Data prezzo': d(h.priceDate) }));
   const wb = X.utils.book_new();
   const add = (name, rows, fallback) => { const ws = X.utils.json_to_sheet(rows.length ? rows : [fallback], { cellDates: true, dateNF: 'dd/mm/yyyy' }); const keys = Object.keys(rows[0] || fallback); ws['!cols'] = keys.map(k => ({ wch: Math.max(12, k.length + 2, ...rows.slice(0, 200).map(r => String(r[k] instanceof Date ? '00/00/0000' : r[k] ?? '').length + 1)) })); X.utils.book_append_sheet(wb, ws, name); };
@@ -2115,6 +2137,7 @@ document.addEventListener('click', e => {
   if (a === 'new-prop') return propForm();
   if (a === 'prop-sel') { S.ui.propId = id; render(); return; }
   if (a === 'prop-year') { S.ui.propYear = String(+S.ui.propYear + +t.dataset.d); render(); return; }
+  if (a === 'prop-rent') { const pr = curProp(), r = pr?.rent || {}; return txForm(null, { categoryId: r.categoryId || guessCat(/affitto/i), amount: r.amount || '', note: 'Affitto ' + (pr?.name || ''), propertyId: pr?.id || '' }); }
   if (a === 'prop-pay') { const pr = curProp(), m = pr?.mortgage || {}; return txForm(null, { categoryId: m.categoryId || guessCat(/mutuo/i), amount: m.monthlyPayment || '', note: 'Rata mutuo ' + (pr?.name || ''), propertyId: pr?.id || '' }); }
   if (a === 'prop-exp') {
     const pr = curProp(), mc = pr?.mortgage?.categoryId, freq = {};
