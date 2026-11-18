@@ -181,6 +181,13 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--surface-2)}
 .toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:9px;z-index:60;font-weight:500;max-width:calc(100vw - 32px)}
 .toast.err{background:var(--neg);color:#fff}
 .fab{display:none}
+.more-btn{display:none!important}
+.more-link{display:flex;align-items:center;gap:12px;padding:12px 10px;border-radius:9px;color:var(--fg);text-decoration:none;font-weight:500}
+.more-link svg{width:20px;height:20px;color:var(--muted)}
+.more-link:hover,.more-link[aria-current="page"]{background:var(--accent-soft);color:var(--accent)}
+.checks{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px 14px}
+.form-h{font-family:var(--f-display);font-weight:700;font-size:1rem;padding-top:6px;border-top:1px solid var(--line)}
+@media (max-width:760px){ .nav a.more{display:none} .more-btn{display:flex!important} .nav a{font-size:.66rem} }
 body.locked .side,body.locked .fab{display:none!important}
 body.locked .app{grid-template-columns:minmax(0,1fr)}
 .skel{color:var(--muted);padding:40px 0;text-align:center}
@@ -287,9 +294,9 @@ function nextDate(iso, f) {
 }
 
 /* ---------- stato ---------- */
-const COLS = ['accounts', 'categories', 'transactions', 'holdings', 'goals', 'recurring', 'snapshots'];
+const COLS = ['accounts', 'categories', 'transactions', 'holdings', 'goals', 'recurring', 'snapshots', 'properties'];
 const S = { sb: null, user: null, synced: false, status: 'loading', settings: {},
-  ui: { year: todayISO().slice(0, 4), month: ymOf(todayISO()), q: '', fAcc: '', fCat: '', fKind: '', budgetMonth: ymOf(todayISO()) } };
+  ui: { propYear: todayISO().slice(0, 4), year: todayISO().slice(0, 4), month: ymOf(todayISO()), q: '', fAcc: '', fCat: '', fKind: '', budgetMonth: ymOf(todayISO()) } };
 COLS.forEach(c => S[c] = []);
 const byId = (col, id) => S[col].find(x => x.id === id);
 const cat = id => byId('categories', id);
@@ -439,18 +446,24 @@ function toast(msg, err) { const t = $('#toast'); t.textContent = msg; t.classNa
 const ICONS = {
   panoramica: '<path d="M3 13h8V3H3zM13 21h8V11h-8zM3 21h8v-6H3zM13 3v6h8V3z"/>',
   mensile: '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/>',
+  casa: '<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
+  altro: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
   movimenti: '<path d="M7 7h13M7 7l3-3M7 7l3 3M17 17H4m13 0-3-3m3 3-3 3"/>',
   budget: '<circle cx="12" cy="12" r="9"/><path d="M12 3v9l6.5 6"/>',
   patrimonio: '<path d="M3 20h18M5 20V10m4 10V10m6 10V10m4 10V10M2 10l10-6 10 6"/>',
   obiettivi: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
   impostazioni: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'
 };
-const ROUTES = { panoramica: 'Panoramica', mensile: 'Mensile', movimenti: 'Movimenti', budget: 'Budget', patrimonio: 'Patrimonio', obiettivi: 'Obiettivi', impostazioni: 'Impostazioni' };
+const ROUTES = { panoramica: 'Panoramica', mensile: 'Mensile', movimenti: 'Movimenti', casa: 'Marzabotto 14', budget: 'Budget', patrimonio: 'Patrimonio', obiettivi: 'Obiettivi', impostazioni: 'Impostazioni' };
 const route = () => { const h = location.hash.slice(1); return ROUTES[h] ? h : 'panoramica'; };
+const MORE_ROUTES = ['budget', 'patrimonio', 'obiettivi', 'impostazioni'];
+const routeLabel = k => k === 'casa' ? propName() : ROUTES[k];
+const navIcon = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[k]}</svg>`;
 function renderNav() {
   const r = route();
-  $('#nav').innerHTML = Object.entries(ROUTES).map(([k, v]) =>
-    `<a href="#${k}" ${k === r ? 'aria-current="page"' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[k]}</svg>${v}</a>`).join('');
+  $('#nav').innerHTML = Object.keys(ROUTES).map(k =>
+    `<a href="#${k}" class="${MORE_ROUTES.includes(k) ? 'more' : ''}" ${k === r ? 'aria-current="page"' : ''}>${navIcon(k)}<span>${esc(k === 'casa' && innerWidth <= 760 ? routeLabel(k).replace(/\s+\d+.*$/, '') : routeLabel(k))}</span></a>`).join('')
+    + `<a href="#" class="more-btn" data-act="more" ${MORE_ROUTES.includes(r) ? 'aria-current="page"' : ''}>${navIcon('altro')}<span>Altro</span></a>`;
 }
 
 /* ---------- render ---------- */
@@ -551,6 +564,134 @@ VIEWS.panoramica = () => {
     <div class="head-actions"><div class="month-nav"><button class="icon-btn" data-act="year" data-d="-1" aria-label="Anno precedente">‹</button><span>${y}</span><button class="icon-btn" data-act="year" data-d="1" aria-label="Anno successivo">›</button></div><button class="btn primary hide-m" data-act="new-tx">+ Movimento</button></div></div>
   ${yearBudgetPanel(y)}`;
 };
+
+/* ---------- proprietà (Marzabotto 14) ---------- */
+const PROP_ID = 'marzabotto14';
+const prop = () => S.properties.find(p => p.id === PROP_ID) || null;
+const propName = () => prop()?.name || 'Marzabotto 14';
+const guessCat = re => S.categories.find(c => c.kind === 'spesa' && re.test(c.name))?.id || '';
+function annuity(P, rYear, years) { const r = rYear / 100 / 12, n = Math.round(years * 12); if (!(P > 0) || !(n > 0)) return 0; return r ? P * r / (1 - Math.pow(1 + r, -n)) : P / n; }
+function mortgageStats(pr) {
+  const m = (pr && pr.mortgage) || {};
+  const principal = +m.principal || 0;
+  if (!(principal > 0)) return null;
+  const refDate = m.refDate || m.startDate || '0000-01-01';
+  const r = (+m.rate || 0) / 100 / 12;
+  let res = +m.residual > 0 ? +m.residual : principal;
+  const startRes = res;
+  const byMonth = {};
+  for (const t of S.transactions) {
+    if (t.kind !== 'spesa' || !m.categoryId || t.categoryId !== m.categoryId || t.date < refDate) continue;
+    byMonth[ymOf(t.date)] = (byMonth[ymOf(t.date)] || 0) + (+t.amount || 0);
+  }
+  const rows = []; let paid = 0, interest = 0, capital = 0;
+  for (const ym of Object.keys(byMonth).sort()) {
+    const p = byMonth[ym], i = r ? Math.min(p, res * r) : 0, c = Math.min(res, p - i);
+    res = Math.max(0, res - c); paid += p; interest += i; capital += c;
+    rows.push({ ym, p, i, c, res });
+  }
+  const pay = +m.monthlyPayment || annuity(principal, +m.rate || 0, +m.years || 0);
+  let monthsLeft = null, toPay = null;
+  if (res <= 0.005) { monthsLeft = 0; toPay = 0; }
+  else if (pay > 0) {
+    let x = res, k = 0, tot = 0;
+    while (x > 0.005 && k < 720) { const i = x * r, c = pay - i; if (c <= 0) { k = Infinity; break; } const pp = Math.min(pay, x + i); tot += pp; x -= pp - i; k++; }
+    if (Number.isFinite(k)) { monthsLeft = k; toPay = tot; }
+  }
+  const lastYm = rows.length ? rows[rows.length - 1].ym : ymOf(todayISO());
+  return { principal, startRes, res, paid, interest, capital, rows, pay, monthsLeft, toPay, endYm: monthsLeft != null ? addMonths(lastYm, monthsLeft) : null, pctRepaid: 1 - res / principal, hasRate: !!r, categoryId: m.categoryId };
+}
+VIEWS.casa = () => {
+  const pr = prop(), name = propName();
+  const head = (extra = '') => `<div class="head"><div><div class="eyebrow">Proprietà</div><h1>${esc(name)}</h1>${pr?.address ? `<span class="muted">${esc(pr.address)}</span>` : ''}</div><div class="head-actions">${extra}</div></div>`;
+  if (!pr) return head() + `<section class="panel empty"><h2>Inserisci i dati della casa</h2><p>Importo del mutuo, tasso, rata e le categorie di spesa della casa (condominio, utenze, assicurazione…). Le rate che registri nei movimenti aggiorneranno da sole il debito residuo.</p><button class="btn primary" data-act="edit-prop">Inserisci i dati</button></section>`;
+  const ms = mortgageStats(pr), year = S.ui.propYear;
+  const mcat = pr.mortgage?.categoryId || '', cats = (pr.expenseCats || []).filter(id => id !== mcat);
+  const ptx = sortTx(S.transactions.filter(t => t.kind === 'spesa' && String(t.date).startsWith(year) && (cats.includes(t.categoryId) || (mcat && t.categoryId === mcat))));
+  const mort = ptx.filter(t => t.categoryId === mcat).reduce((s, t) => s + +t.amount, 0);
+  const byCat = {}; ptx.filter(t => t.categoryId !== mcat).forEach(t => byCat[t.categoryId] = (byCat[t.categoryId] || 0) + +t.amount);
+  const exp = sumObj(byCat), tot = exp + mort;
+  const cy = todayISO().slice(0, 4), months = year < cy ? 12 : year > cy ? 0 : +todayISO().slice(5, 7);
+  const value = +pr.currentValue || 0;
+  const actions = `<button class="btn" data-act="edit-prop">Modifica dati</button>${ms ? `<button class="btn" data-act="prop-pay">+ Rata mutuo</button>` : ''}<button class="btn primary" data-act="prop-exp">+ Spesa casa</button>`;
+  let mortHTML;
+  if (!ms) mortHTML = `<section class="panel"><div class="panel-h"><h2>Mutuo</h2></div><div class="empty"><p>Inserisci l'importo del mutuo per seguire il debito residuo.</p><button class="btn" data-act="edit-prop">Inserisci il mutuo</button></div></section>`;
+  else {
+    const last = ms.rows.slice(-6).reverse();
+    mortHTML = `<section class="panel"><div class="panel-h"><div><h2>Mutuo${pr.mortgage.bank ? ' · ' + esc(pr.mortgage.bank) : ''}</h2><span class="muted" style="font-size:.82rem">Le rate registrate nella categoria “${esc(cat(mcat)?.name || '—')}” aggiornano il debito residuo</span></div></div>
+      <div class="kpis" style="margin-bottom:14px">
+        <div class="kpi"><span class="eyebrow">Debito residuo</span><span class="v num">${money0(ms.res)}</span><span class="s">su ${money0(ms.principal)} di mutuo</span></div>
+        <div class="kpi"><span class="eyebrow">Capitale rimborsato</span><span class="v num pos">${pct(ms.pctRepaid)}</span><span class="s">${money0(ms.principal - ms.res)} restituiti</span></div>
+        <div class="kpi"><span class="eyebrow">Rate registrate</span><span class="v num">${money0(ms.paid)}</span><span class="s">${ms.rows.length} mes${ms.rows.length === 1 ? 'e' : 'i'}${ms.hasRate ? ` · interessi ${money0(ms.interest)}` : ''}</span></div>
+        <div class="kpi"><span class="eyebrow">Fine prevista</span><span class="v num">${ms.endYm ? ymShort(ms.endYm) + ' ' + ms.endYm.slice(0, 4) : '—'}</span><span class="s">${ms.monthsLeft != null ? `${ms.monthsLeft} rate · ancora ${money0(ms.toPay)} da versare` : 'Inserisci la rata per stimarla'}</span></div>
+      </div>
+      <div class="bar" style="height:12px"><i style="width:${Math.min(100, ms.pctRepaid * 100).toFixed(1)}%;background:var(--pos)"></i></div>
+      ${ms.hasRate ? '' : `<p class="muted" style="font-size:.82rem;margin:10px 0 0">Senza il tasso d'interesse ogni rata riduce il debito per intero. Inserisci il tasso (TAN) in “Modifica dati” per separare interessi e capitale.</p>`}
+      ${last.length ? `<div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Mese</th><th class="r">Rata</th>${ms.hasRate ? '<th class="r hide-m">Interessi</th><th class="r hide-m">Capitale</th>' : ''}<th class="r">Residuo</th></tr></thead><tbody>
+        ${last.map(x => `<tr><td>${ymLabel(x.ym)}</td><td class="r num">${money(x.p)}</td>${ms.hasRate ? `<td class="r num hide-m">${money(x.i)}</td><td class="r num hide-m">${money(x.c)}</td>` : ''}<td class="r num"><b>${money0(x.res)}</b></td></tr>`).join('')}
+      </tbody></table></div>` : `<p class="muted" style="margin:12px 0 0">Nessuna rata registrata dopo il ${dShort(pr.mortgage.refDate || pr.mortgage.startDate)}. Usa “+ Rata mutuo” per aggiungere la prima.</p>`}
+    </section>`;
+  }
+  const valueHTML = value || +pr.purchasePrice ? `<section class="panel"><div class="panel-h"><h2>Valore dell'immobile</h2></div>
+    <div class="kpis"><div class="kpi"><span class="eyebrow">Valore stimato</span><span class="v num">${value ? money0(value) : '—'}</span><span class="s">${pr.valueDate ? 'Stima del ' + dShort(pr.valueDate) : '&nbsp;'}</span></div>
+    <div class="kpi"><span class="eyebrow">Prezzo d'acquisto</span><span class="v num">${+pr.purchasePrice ? money0(+pr.purchasePrice) : '—'}</span><span class="s">${pr.purchaseDate ? dShort(pr.purchaseDate) : '&nbsp;'}</span></div>
+    <div class="kpi"><span class="eyebrow">Quota di tua proprietà</span><span class="v num ${value && ms && value - ms.res < 0 ? 'neg' : 'pos'}">${value ? money0(value - (ms ? ms.res : 0)) : '—'}</span><span class="s">Valore meno debito residuo</span></div>
+    <div class="kpi"><span class="eyebrow">Costo casa nel ${year}</span><span class="v num">${money0(tot)}</span><span class="s">Mutuo + spese</span></div></div></section>` : '';
+  return head(actions) + mortHTML + valueHTML + `
+  <section class="panel"><div class="panel-h"><h2>Spese della casa</h2><div class="month-nav"><button class="icon-btn" data-act="prop-year" data-d="-1" aria-label="Anno precedente">‹</button><span>${year}</span><button class="icon-btn" data-act="prop-year" data-d="1" aria-label="Anno successivo">›</button></div></div>
+    <div class="kpis" style="margin-bottom:14px">
+      <div class="kpi"><span class="eyebrow">Spese casa</span><span class="v num">${money0(exp)}</span><span class="s">Escluso il mutuo</span></div>
+      <div class="kpi"><span class="eyebrow">Rate mutuo</span><span class="v num">${money0(mort)}</span><span class="s">Pagate nel ${year}</span></div>
+      <div class="kpi"><span class="eyebrow">Totale</span><span class="v num">${money0(tot)}</span><span class="s">Spese + mutuo</span></div>
+      <div class="kpi"><span class="eyebrow">Media mensile</span><span class="v num">${months ? money0(tot / months) : '—'}</span><span class="s">${months ? `Su ${months} mes${months === 1 ? 'e' : 'i'}` : 'Anno non iniziato'}</span></div>
+    </div>
+    ${Object.keys(byCat).length ? Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([cid, v]) => { const c = cat(cid); return `<div class="catrow"><div class="catname"><i class="dot" style="background:${esc(c?.color || '#999')}"></i><span>${esc(c?.name || 'Senza categoria')}</span></div><div class="num">${money(v)} <span class="muted">· ${pct(v / exp)}</span></div><div class="bar"><i style="width:${(v / exp * 100).toFixed(1)}%;background:${esc(c?.color || 'var(--accent)')}"></i></div></div>`; }).join('') : `<p class="muted" style="margin:0">Nessuna spesa della casa nel ${year}${cats.length ? '' : ': scegli le categorie della casa in “Modifica dati”'}.</p>`}
+    <p class="muted" style="font-size:.82rem;margin:10px 0 0">Categorie collegate: ${cats.map(id => esc(cat(id)?.name || '')).filter(Boolean).join(', ') || 'nessuna'}.</p>
+  </section>
+  <section class="panel"><div class="panel-h"><h2>Movimenti della casa nel ${year}</h2><span class="pill num">${ptx.length}</span></div>${ptx.length ? txList(ptx.slice(0, 40)) + (ptx.length > 40 ? `<p class="muted" style="margin:10px 0 0">Mostrati gli ultimi 40. Gli altri sono in Movimenti, filtrando per categoria.</p>` : '') : '<p class="muted" style="margin:0">Nessun movimento.</p>'}</section>`;
+};
+function propForm() {
+  const pr = prop() || { name: 'Marzabotto 14' }, m = pr.mortgage || {};
+  const expCats = catOptions('spesa');
+  const mGuess = m.categoryId || guessCat(/mutuo/i);
+  const defCats = pr.expenseCats || S.categories.filter(c => c.kind === 'spesa' && /condomin|utenz|bollett|assicuraz.*casa|wi-?fi|internet|luce|gas|acqua|manutenz|imu|tari|rifiuti/i.test(c.name)).map(c => c.id);
+  openForm({
+    title: 'Dati di ' + (pr.name || 'Marzabotto 14'), wide: true,
+    intro: `<p class="muted" style="margin:0;font-size:.88rem">Compila quello che sai: puoi aggiornare questi dati in qualsiasi momento.</p>`,
+    fields: [
+      [{ id: 'name', label: 'Nome', value: pr.name || 'Marzabotto 14', required: true }, { id: 'address', label: 'Indirizzo (facoltativo)', value: pr.address || '', placeholder: 'Via Marzabotto 14, …' }],
+      [{ id: 'purchasePrice', label: 'Prezzo d\'acquisto (€)', num: true, value: pr.purchasePrice ?? '' }, { id: 'purchaseDate', label: 'Data d\'acquisto', type: 'date', value: pr.purchaseDate || '' }],
+      [{ id: 'currentValue', label: 'Valore stimato oggi (€)', num: true, value: pr.currentValue ?? '' }, { id: 'valueDate', label: 'Data della stima', type: 'date', value: pr.valueDate || todayISO() }],
+      { id: 'h-m', type: 'heading', label: 'Mutuo' },
+      [{ id: 'bank', label: 'Banca', value: m.bank || '' }, { id: 'principal', label: 'Totale prestito mutuo (€)', num: true, value: m.principal ?? '' }],
+      [{ id: 'startDate', label: 'Data prima rata', type: 'date', value: m.startDate || '' }, { id: 'years', label: 'Durata (anni)', num: true, value: m.years ?? '' }],
+      [{ id: 'rate', label: 'Tasso annuo TAN (%)', num: true, value: m.rate ?? '', placeholder: 'es. 3,2' }, { id: 'monthlyPayment', label: 'Rata mensile (€)', num: true, value: m.monthlyPayment ?? '', hint: 'Se la lasci vuota la calcolo da importo, tasso e durata' }],
+      [{ id: 'residual', label: 'Debito residuo a una data (facoltativo)', num: true, value: m.residual ?? '', hint: 'Utile se il mutuo è iniziato prima di usare l\'app: trovi il residuo sul piano di ammortamento' }, { id: 'refDate', label: 'Alla data del', type: 'date', value: m.refDate || '' }],
+      { id: 'categoryId', label: 'Categoria delle rate del mutuo', type: 'select', value: mGuess, options: [{ v: '', l: '— scegli —' }, ...expCats] },
+      { id: 'expenseCats', label: 'Categorie delle spese della casa', type: 'checks', value: defCats, options: expCats }
+    ],
+    validate(v) {
+      if (!v.name.trim()) return 'Dai un nome alla proprietà.';
+      if (v.principal && !(parseNum(v.principal) > 0)) return 'Il totale del mutuo non è un numero valido.';
+      if (parseNum(v.principal) > 0 && !v.categoryId) return 'Scegli la categoria in cui registri le rate del mutuo (puoi crearla in Impostazioni → Categorie).';
+      if (v.residual && !v.refDate) return 'Indica a quale data si riferisce il debito residuo.';
+    },
+    async onSubmit(v) {
+      const n = x => { const k = parseNum(x); return Number.isFinite(k) ? k : null; };
+      const doc = { name: v.name.trim(), address: v.address.trim(), purchasePrice: n(v.purchasePrice), purchaseDate: v.purchaseDate, currentValue: n(v.currentValue), valueDate: v.valueDate,
+        mortgage: { bank: v.bank.trim(), principal: n(v.principal), startDate: v.startDate, years: n(v.years), rate: n(v.rate), monthlyPayment: n(v.monthlyPayment), residual: n(v.residual), refDate: v.residual ? v.refDate : '', categoryId: v.categoryId },
+        expenseCats: (v.expenseCats || []).filter(id => id !== v.categoryId) };
+      if (!doc.mortgage.monthlyPayment && doc.mortgage.principal && doc.mortgage.years) doc.mortgage.monthlyPayment = Math.round(annuity(doc.mortgage.principal, doc.mortgage.rate || 0, doc.mortgage.years) * 100) / 100;
+      const ok = await put('properties', PROP_ID, doc); ok && toast('Dati della casa salvati'); return ok;
+    }
+  });
+}
+function moreMenu() {
+  const r = route();
+  const m = $('#modal');
+  m.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="m-title"><header><h2 id="m-title">Altre sezioni</h2><button class="icon-btn" type="button" data-act="close" aria-label="Chiudi">×</button></header><div class="body" style="gap:4px">${MORE_ROUTES.map(k => `<a class="more-link" href="#${k}" data-act="close" ${k === r ? 'aria-current="page"' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[k]}</svg>${routeLabel(k)}</a>`).join('')}</div></div>`;
+  m.hidden = false;
+}
 
 /* ---------- resoconto annuale vs budget ---------- */
 function yearBudget(year) {
@@ -831,6 +972,8 @@ function fieldHTML(f) {
   let inner;
   if (f.type === 'select') inner = `<select class="input" id="${id}" name="${f.id}">${f.options.map(o => o.group ? `<optgroup label="${esc(o.group)}">${o.items.map(i => `<option value="${esc(i.v)}" ${String(i.v) === String(v) ? 'selected' : ''}>${esc(i.l)}</option>`).join('')}</optgroup>` : `<option value="${esc(o.v)}" ${String(o.v) === String(v) ? 'selected' : ''}>${esc(o.l)}</option>`).join('')}</select>`;
   else if (f.type === 'seg') return `<div class="field" data-f="${f.id}"><input type="hidden" name="${f.id}" id="${id}" value="${esc(v)}"><div class="seg" role="group" aria-label="${esc(f.label)}">${f.options.map(o => `<button type="button" data-seg="${f.id}" data-v="${esc(o.v)}" aria-pressed="${o.v === v}">${esc(o.l)}</button>`).join('')}</div></div>`;
+  else if (f.type === 'heading') return `<div class="form-h">${esc(f.label)}</div>`;
+  else if (f.type === 'checks') return `<div class="field" data-f="${f.id}"><label>${esc(f.label)}</label><div class="checks">${f.options.map((o, i) => `<label class="check"><input type="checkbox" data-multi name="${f.id}" id="${id}-${i}" value="${esc(o.v)}" ${(v || []).includes(o.v) ? 'checked' : ''}> ${esc(o.l)}</label>`).join('')}</div></div>`;
   else if (f.type === 'checkbox') return `<label class="check" data-f="${f.id}"><input type="checkbox" id="${id}" name="${f.id}" ${v ? 'checked' : ''}> ${esc(f.label)}</label>`;
   else if (f.type === 'color') inner = `<div style="display:flex;gap:6px;flex-wrap:wrap">${PALETTE.map(c => `<label style="cursor:pointer"><input type="radio" name="${f.id}" value="${c}" ${c === v ? 'checked' : ''} style="position:absolute;opacity:0" ${c === PALETTE[0] ? `id="${id}"` : ''}><span class="dot" style="width:24px;height:24px;background:${c};outline:${c === v ? '2px solid var(--fg)' : 'none'};outline-offset:2px" data-swatch></span></label>`).join('')}</div>`;
   else inner = `<input class="input${f.num ? ' num' : ''}" id="${id}" name="${f.id}" type="${f.type || 'text'}" ${f.num ? 'inputmode="decimal"' : ''} value="${esc(f.num && v !== '' ? String(v).replace('.', ',') : v)}" ${f.placeholder ? `placeholder="${esc(f.placeholder)}"` : ''} ${f.required ? 'required' : ''} autocomplete="off">`;
@@ -870,17 +1013,17 @@ function openForm(o) {
   o.onChange && o.onChange(formValues(form), form);
   const first = form.querySelector('input:not([type=hidden]):not([type=radio]),select'); first && setTimeout(() => first.focus(), 30);
 }
-function formValues(form) { const o = {}; for (const el of form.elements) { if (!el.name) continue; if (el.type === 'checkbox') o[el.name] = el.checked; else if (el.type === 'radio') { if (el.checked) o[el.name] = el.value; } else o[el.name] = el.value; } return o; }
+function formValues(form) { const o = {}; for (const el of form.elements) { if (!el.name) continue; if (el.type === 'checkbox' && el.dataset.multi !== undefined) { (o[el.name] = o[el.name] || []); if (el.checked) o[el.name].push(el.value); } else if (el.type === 'checkbox') o[el.name] = el.checked; else if (el.type === 'radio') { if (el.checked) o[el.name] = el.value; } else o[el.name] = el.value; } return o; }
 function closeModal() { const m = $('#modal'); m.hidden = true; m.innerHTML = ''; formState = null; }
 const showField = (form, id, on) => { const f = form.querySelector(`[data-f="${id}"]`); if (f) f.hidden = !on; };
 
 const accOptions = () => activeAccounts().map(a => ({ v: a.id, l: a.name }));
 const catOptions = kind => catsOf(kind).map(c => ({ v: c.id, l: c.name }));
 
-function txForm(t) {
+function txForm(t, preset) {
   const isNew = !t; const accs = accOptions();
   if (!accs.length) { toast('Crea prima un conto nelle impostazioni o nella sezione Patrimonio.', true); return; }
-  t = t || { kind: 'spesa', date: todayISO(), accountId: S.ui.fAcc || accs[0].v };
+  t = t || { kind: 'spesa', date: todayISO(), accountId: S.ui.fAcc || accs[0].v, ...preset };
   openForm({
     title: isNew ? 'Nuovo movimento' : 'Modifica movimento',
     fields: [
@@ -1208,6 +1351,11 @@ document.addEventListener('click', e => {
   const t = e.target.closest('[data-act]'); if (!t) return;
   const a = t.dataset.act, id = t.dataset.id;
   if (a === 'close') { if (e.target.closest('#modal')) closeModal(); return; }
+  if (a === 'more') { e.preventDefault(); return moreMenu(); }
+  if (a === 'edit-prop') return propForm();
+  if (a === 'prop-year') { S.ui.propYear = String(+S.ui.propYear + +t.dataset.d); render(); return; }
+  if (a === 'prop-pay') { const m = prop()?.mortgage || {}; return txForm(null, { categoryId: m.categoryId, amount: m.monthlyPayment || '', note: 'Rata mutuo ' + propName() }); }
+  if (a === 'prop-exp') { const pr = prop(); return txForm(null, { categoryId: (pr?.expenseCats || [])[0] || '', note: '' }); }
   if (a === 'year') { S.ui.year = String(+S.ui.year + +t.dataset.d); render(); return; }
   if (a === 'month') { S.ui[t.dataset.key] = addMonths(S.ui[t.dataset.key], +t.dataset.d); render(); return; }
   if (a === 'new-tx') return txForm();
@@ -1277,7 +1425,7 @@ document.addEventListener('submit', e => {
   if (e.target.id === 'auth-form') { e.preventDefault(); authSubmit('login'); }
 });
 window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); });
-let rT; window.addEventListener('resize', () => { clearTimeout(rT); rT = setTimeout(drawCharts, 150); });
+let rT; window.addEventListener('resize', () => { clearTimeout(rT); rT = setTimeout(() => { drawCharts(); renderNav(); }, 150); });
 window.addEventListener('online', () => { netDown = false; refresh(); });
 window.addEventListener('offline', () => { netDown = true; updateSync(); schedule(); });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.user) refresh(); });
@@ -1286,7 +1434,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 const DEFAULT_CATS = [
   ['c-casa', 'Casa e affitto', 'spesa'], ['c-spesa', 'Spesa alimentare', 'spesa'], ['c-rist', 'Ristoranti e bar', 'spesa'], ['c-trasp', 'Trasporti', 'spesa'],
   ['c-auto', 'Auto e carburante', 'spesa'], ['c-bollette', 'Bollette e utenze', 'spesa'], ['c-salute', 'Salute', 'spesa'], ['c-svago', 'Svago', 'spesa'], ['c-viaggi', 'Viaggi', 'spesa'],
-  ['c-abbon', 'Abbonamenti', 'spesa'], ['c-shop', 'Shopping', 'spesa'], ['c-tasse', 'Tasse e commissioni', 'spesa'], ['c-altro-s', 'Altro', 'spesa'],
+  ['c-abbon', 'Abbonamenti', 'spesa'], ['c-shop', 'Shopping', 'spesa'], ['c-tasse', 'Tasse e commissioni', 'spesa'], ['c-mutuo', 'Mutuo', 'spesa'], ['c-condominio', 'Spese condominiali', 'spesa'], ['c-assic-casa', 'Assicurazione casa', 'spesa'], ['c-manut', 'Manutenzione casa', 'spesa'], ['c-imu', 'IMU e tasse casa', 'spesa'], ['c-altro-s', 'Altro', 'spesa'],
   ['c-stip', 'Stipendio', 'entrata'], ['c-bonus', 'Bonus e premi', 'entrata'], ['c-rend', 'Rendite e dividendi', 'entrata'], ['c-rimb', 'Rimborsi', 'entrata'], ['c-altro-e', 'Altro', 'entrata']
 ];
 function getConfig() {
