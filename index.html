@@ -247,6 +247,8 @@ body.locked .app{grid-template-columns:minmax(0,1fr)}
 
 /* Intestazioni con selettore di mese/anno: titolo e selettore sulla stessa riga anche su telefono */
 .lbl-short{display:none}
+.pac-due{background:var(--accent-soft);border-radius:12px;padding:12px 14px 4px;margin-bottom:14px}
+.pac-due .list-row{border-bottom:0}
 /* riepilogo in evidenza */
 :root{--hero:#EFEAE3;--hero-fg:#3A342F;--hero-tile:rgba(255,255,255,.72);--hero-muted:#8A7F73;
   --tag-in:#E4ECDE;--tag-in-fg:#55704D;--tag-out:#F1E3E3;--tag-out-fg:#8A5757;--tag-sav:#E3EBF1;--tag-sav-fg:#4F6475}
@@ -362,7 +364,7 @@ html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
 <script>
 (() => {
 "use strict";
-const APP_VERSION = '45';
+const APP_VERSION = '46';
 /* ---------- utilità ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -535,7 +537,7 @@ function balancesNative(upTo) {
   for (const t of S.transactions) {
     if (t.paidBy) continue;
     if (t.kind === 'entrata') apply(t.accountId, valIn(t.accountId, t), t.date);
-    else if (t.kind === 'spesa') apply(t.accountId, -valIn(t.accountId, t), t.date);
+    else if (t.kind === 'spesa' || t.kind === 'investimento') apply(t.accountId, -valIn(t.accountId, t), t.date);
     else if (t.kind === 'giroconto' || t.kind === 'accantonamento') { apply(t.accountId, -valIn(t.accountId, t), t.date); apply(t.toAccountId, (t.toAmount != null && txCur(t) !== accCur(t.toAccountId) && t.toCurrency === accCur(t.toAccountId) ? +t.toAmount : valIn(t.toAccountId, t)), t.date); }
   }
   return b;
@@ -802,6 +804,7 @@ function monthNav(key) {
   return `<div class="month-nav"><button class="icon-btn" data-act="month" data-key="${key}" data-d="-1" aria-label="Mese precedente">‹</button>${monthPick(key)}<button class="icon-btn" data-act="month" data-key="${key}" data-d="1" aria-label="Mese successivo">›</button></div>`;
 }
 function catBadge(c, kind) {
+  if (kind === 'investimento') return `<div class="tx-ic" style="background:#C8DCE6;color:#4F6475"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${CAT_ICONS.trend}</svg></div>`;
   if (kind === 'giroconto') return `<div class="tx-ic" style="background:#D8DDE8;color:#4F6475"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS.movimenti}</svg></div>`;
   const col = c?.color || '#E3E5EC';
   return `<div class="tx-ic" style="background:${esc(col)}" title="${esc(c?.name || 'Senza categoria')}">${catIconSvg(c)}</div>`;
@@ -810,6 +813,7 @@ function txRow(t) {
   const c = cat(t.categoryId), a = acc(t.accountId);
   let title, sub, cls, sign;
   if (t.kind === 'giroconto') { title = t.note || 'Giroconto'; sub = `${a?.name || '?'} → ${acc(t.toAccountId)?.name || '?'}`; cls = 'muted'; sign = ''; }
+  else if (t.kind === 'investimento') { title = t.note || 'Acquisto quote'; sub = [`${nf.format(+t.quantity || 0)} quote a ${money(+t.price || 0)}`, a?.name].filter(Boolean).join(' · '); cls = 'muted'; sign = '−'; }
   else if (t.kind === 'accantonamento') { title = t.note || 'Accantonamento ' + (c?.name || ''); sub = ['Accantonato', c?.name, `${a?.name || '?'} → ${acc(t.toAccountId)?.name || '?'}`].filter(Boolean).join(' · '); cls = ''; sign = '−'; }
   else { const fromFund = !t.paidBy && t.kind === 'spesa' && isReserve(t.accountId); title = t.note || c?.name || 'Movimento'; sub = [t.paidBy ? 'Pagata da ' + t.paidBy : '', fromFund ? 'Pagato dal fondo' : '', c?.name, propById(t.propertyId)?.name, t.paidBy ? '' : a?.name].filter(Boolean).join(' · '); cls = t.kind === 'entrata' ? 'pos' : (fromFund || t.paidBy) ? 'muted' : ''; sign = t.kind === 'entrata' ? '+' : '−'; }
   return `<div class="tx" data-act="edit-tx" data-id="${esc(t.id)}" tabindex="0" role="button">${catBadge(c, t.kind)}<div class="tx-main"><b>${esc(title)}</b><small>${esc(sub)}</small></div><div class="tx-amt num ${cls}">${sign}${txCur(t) !== BASE ? moneyC(txOrig(t), txCur(t)) : money(+t.amount)}${txCur(t) !== BASE ? `<small class="muted" style="display:block;font-weight:400;font-size:.75rem">≈ ${money(+t.amount)}</small>` : ''}</div></div>`;
@@ -1133,7 +1137,7 @@ VIEWS.movimenti = () => {
       <div class="field"><label for="f-acc">Conto</label><select class="input" id="f-acc"><option value="">Tutti</option>${accOpts}</select></div>
       <div class="field"><label for="f-cat">Categoria</label><select class="input" id="f-cat"><option value="">Tutte</option>${catOpts}</select></div>
       ${S.properties.length ? `<div class="field"><label for="f-prop">Proprietà</label><select class="input" id="f-prop"><option value="">Tutte</option><option value="-" ${S.ui.fProp === '-' ? 'selected' : ''}>Nessuna proprietà</option>${propsSorted().map(p => `<option value="${esc(p.id)}" ${S.ui.fProp === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>` : ''}
-      <div class="field"><label for="f-kind">Tipo</label><select class="input" id="f-kind"><option value="">Tutti</option><option value="spesa" ${S.ui.fKind === 'spesa' ? 'selected' : ''}>Spese</option><option value="entrata" ${S.ui.fKind === 'entrata' ? 'selected' : ''}>Entrate</option><option value="giroconto" ${S.ui.fKind === 'giroconto' ? 'selected' : ''}>Giroconti</option><option value="accantonamento" ${S.ui.fKind === 'accantonamento' ? 'selected' : ''}>Accantonamenti</option></select></div>
+      <div class="field"><label for="f-kind">Tipo</label><select class="input" id="f-kind"><option value="">Tutti</option><option value="spesa" ${S.ui.fKind === 'spesa' ? 'selected' : ''}>Spese</option><option value="entrata" ${S.ui.fKind === 'entrata' ? 'selected' : ''}>Entrate</option><option value="giroconto" ${S.ui.fKind === 'giroconto' ? 'selected' : ''}>Giroconti</option><option value="accantonamento" ${S.ui.fKind === 'accantonamento' ? 'selected' : ''}>Accantonamenti</option><option value="investimento" ${S.ui.fKind === 'investimento' ? 'selected' : ''}>Investimenti (PAC)</option></select></div>
     </div>
     <label class="check" style="margin-top:10px"><input type="checkbox" id="f-all" ${S.ui.allMonths ? 'checked' : ''}> Cerca in tutti i mesi</label>
   </section>
@@ -1277,10 +1281,11 @@ VIEWS.patrimonio = () => {
       : `<div class="empty"><p>Aggiungi il tuo primo conto: conto corrente, carta, contanti o conto titoli.</p><button class="btn primary" data-act="new-acc">+ Conto</button></div>`}
   </section>
   <section class="panel"><div class="panel-h"><h2>Portafoglio investimenti</h2>
-    <div style="display:flex;gap:8px;flex-wrap:wrap"><span class="pill num">Valore ${money(inv)}</span><span class="pill num ${inv - cost >= 0 ? 'pos' : 'neg'}">${inv - cost >= 0 ? '+' : '−'}${money(Math.abs(inv - cost))} (${pct(cost ? (inv - cost) / cost : NaN)})</span></div></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${pacMonthly() ? `<span class="pill num">PAC ${money0(pacMonthly())}/mese</span>` : ''}<span class="pill num">Valore ${money(inv)}</span><span class="pill num ${inv - cost >= 0 ? 'pos' : 'neg'}">${inv - cost >= 0 ? '+' : '−'}${money(Math.abs(inv - cost))} (${pct(cost ? (inv - cost) / cost : NaN)})</span></div></div>
+    ${pacDueHTML()}
     ${hs.length ? `<div class="tbl-wrap"><table><thead><tr><th>Titolo</th><th>Classe</th><th class="r">Quantità</th><th class="r">Prezzo medio</th><th class="r">Valore</th><th class="r">P/L</th><th class="r">Peso</th></tr></thead><tbody>
-      ${hs.map(h => { const v = holdingValue(h), c = holdingCost(h), pl = v - c; return `<tr class="click" data-act="edit-hold" data-id="${esc(h.id)}"><td><b>${esc(h.name)}</b></td><td>${esc(h.assetClass || '')}</td><td class="r num">${nf.format(+h.quantity || 0)}</td><td class="r num">${money(+h.avgCost)}</td><td class="r num"><b>${money(v)}</b></td><td class="r num ${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${money(Math.abs(pl))}<br><span style="font-size:.78rem">${pct(c ? pl / c : NaN)}</span></td><td class="r num">${pct(inv ? v / inv : NaN)}</td></tr>`; }).join('')}
-    </tbody></table></div><p class="muted" style="font-size:.8rem;margin:10px 0 0">Tocca una riga per aggiornare il prezzo o la quantità.</p>`
+      ${hs.map(h => { const v = holdingValue(h), c = holdingCost(h), pl = v - c; return `<tr class="click" data-act="edit-hold" data-id="${esc(h.id)}"><td><b>${esc(h.name)}</b>${pacOn(h) ? `<br><span class="muted" style="font-size:.78rem;white-space:nowrap">PAC ${money0(+h.pac.amount)}/mese</span>` : ''}</td><td>${esc(h.assetClass || '')}</td><td class="r num">${nf.format(+h.quantity || 0)}</td><td class="r num">${money(+h.avgCost)}</td><td class="r num"><b>${money(v)}</b></td><td class="r num ${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${money(Math.abs(pl))}<br><span style="font-size:.78rem">${pct(c ? pl / c : NaN)}</span></td><td class="r num">${pct(inv ? v / inv : NaN)}</td></tr>`; }).join('')}
+    </tbody></table></div><p class="muted" style="font-size:.8rem;margin:10px 0 0">Tocca una riga per aggiornare il prezzo o impostare il PAC.</p>`
       : `<div class="empty"><p>Registra azioni, ETF, obbligazioni o altri asset con quantità e prezzo.</p><button class="btn primary" data-act="new-hold">+ Investimento</button></div>`}
   </section>`;
 };
@@ -1663,14 +1668,69 @@ function holdForm(h) {
       [{ id: 'name', label: 'Nome', value: h.name || '', placeholder: 'Es. Vanguard FTSE All-World', required: true }, { id: 'ticker', label: 'Ticker / ISIN', value: h.ticker || '', placeholder: 'VWCE' }],
       [{ id: 'assetClass', label: 'Classe', type: 'select', value: h.assetClass, options: ASSET_CLASSES.map(v => ({ v, l: v })) }, { id: 'accountId', label: 'Conto titoli', type: 'select', value: h.accountId || '', options: [{ v: '', l: '—' }, ...accOptions()] }],
       [{ id: 'quantity', label: 'Quantità', num: true, value: h.quantity ?? '', required: true }, { id: 'avgCost', label: 'Prezzo medio di carico (€)', num: true, value: h.avgCost ?? '' }],
-      [{ id: 'price', label: 'Prezzo attuale (€)', num: true, value: h.price ?? '', required: true }, { id: 'priceDate', label: 'Data prezzo', type: 'date', value: h.priceDate || todayISO() }]
+      [{ id: 'price', label: 'Prezzo attuale (€)', num: true, value: h.price ?? '', required: true }, { id: 'priceDate', label: 'Data prezzo', type: 'date', value: h.priceDate || todayISO() }],
+      { id: 'h-pac', type: 'heading', label: 'PAC (piano di accumulo)' },
+      [{ id: 'pacAmount', label: 'Importo mensile (€)', num: true, value: h.pac?.amount ?? '', placeholder: 'Es. 250', hint: 'Lascia vuoto se non hai un PAC su questo titolo' }, { id: 'pacNext', label: 'Prossimo acquisto', type: 'date', value: h.pac?.nextDate || '' }],
+      { id: 'pacActive', label: 'PAC attivo', type: 'checkbox', value: h.pac ? h.pac.active !== false : true }
     ],
-    validate(v) { if (!v.name.trim()) return 'Dai un nome al titolo.'; if (isNaN(parseNum(v.quantity))) return 'Inserisci la quantità.'; if (isNaN(parseNum(v.price))) return 'Inserisci il prezzo attuale.'; },
+    intro: `<p class="muted" style="margin:0;font-size:.85rem">Quantità e prezzo medio si aggiornano da soli ogni volta che registri un acquisto del PAC.</p>`,
+    validate(v) { if (!v.name.trim()) return 'Dai un nome al titolo.'; if (isNaN(parseNum(v.quantity))) return 'Inserisci la quantità.'; if (isNaN(parseNum(v.price))) return 'Inserisci il prezzo attuale.';
+      if (v.pacAmount && !(parseNum(v.pacAmount) > 0)) return 'L\'importo del PAC non è valido.';
+      if (parseNum(v.pacAmount) > 0 && !v.pacNext) return 'Indica la data del prossimo acquisto del PAC.';
+      if (parseNum(v.pacAmount) > 0 && !v.accountId) return 'Scegli il conto titoli da cui parte il PAC.'; },
     async onSubmit(v) {
-      const doc = { ...strip(h), name: v.name.trim(), ticker: v.ticker.trim(), assetClass: v.assetClass, accountId: v.accountId, quantity: parseNum(v.quantity), avgCost: parseNum(v.avgCost) || 0, price: parseNum(v.price), priceDate: v.priceDate };
+      const doc = { ...strip(h), name: v.name.trim(), ticker: v.ticker.trim(), assetClass: v.assetClass, accountId: v.accountId, quantity: parseNum(v.quantity), avgCost: parseNum(v.avgCost) || 0, price: parseNum(v.price), priceDate: v.priceDate,
+        pac: parseNum(v.pacAmount) > 0 ? { amount: parseNum(v.pacAmount), nextDate: v.pacNext, active: !!v.pacActive } : null };
       const ok = await put('holdings', h.id || uid(), doc); ok && toast('Investimento salvato'); return ok;
     },
     onDelete: isNew ? null : async () => { const ok = await del('holdings', h.id); ok && toast('Investimento eliminato'); return ok; }
+  });
+}
+/* ---------- PAC: acquisti mensili di quote ---------- */
+const pacOn = h => !!(h && h.pac && +h.pac.amount > 0 && h.pac.active !== false);
+const pacMonthly = () => S.holdings.filter(pacOn).reduce((x, h) => x + +h.pac.amount, 0);
+function pacDueHTML() {
+  const today = todayISO(), due = S.holdings.filter(h => pacOn(h) && h.pac.nextDate && h.pac.nextDate <= today).sort((a, b) => a.pac.nextDate.localeCompare(b.pac.nextDate));
+  if (!due.length) return '';
+  return `<div class="pac-due"><b>PAC da registrare</b>${due.map(h => `<div class="list-row"><div class="l"><span>${esc(h.name)}</span></div><div style="display:flex;gap:8px;align-items:center"><span class="pill">${dShort(h.pac.nextDate)}</span><span class="num">${money0(+h.pac.amount)}</span><button class="btn small primary" data-act="pac-buy" data-id="${esc(h.id)}">Registra</button></div></div>`).join('')}</div>`;
+}
+// Aggiunge (o toglie, con segno −1) un acquisto alle quote del titolo, ricalcolando il prezzo medio di carico
+function pacApply(h, q, cost, sign) {
+  const qty = (+h.quantity || 0) + sign * q, tot = (+h.quantity || 0) * (+h.avgCost || 0) + sign * cost;
+  return { quantity: Math.round(Math.max(0, qty) * 1e6) / 1e6, avgCost: qty > 1e-9 ? Math.round(tot / qty * 1e4) / 1e4 : 0 };
+}
+function pacBuyForm(h, tx) {
+  const isNew = !tx;
+  if (!h && isNew) return;
+  const name = h?.name || tx?.note || 'Investimento';
+  openForm({
+    title: isNew ? 'Acquisto PAC · ' + name : 'Acquisto · ' + name,
+    intro: `<p class="muted" style="margin:0;font-size:.85rem">L'importo esce dal conto titoli. Non conta tra le uscite né nel budget: le quote vengono aggiunte a ${esc(name)} e il prezzo medio si aggiorna da solo.</p>`,
+    fields: [
+      [{ id: 'date', label: 'Data', type: 'date', value: tx?.date || h?.pac?.nextDate || todayISO(), required: true }, { id: 'amount', label: 'Importo investito (€)', num: true, value: tx?.amount ?? h?.pac?.amount ?? '', required: true }],
+      [{ id: 'price', label: 'Prezzo per quota (€)', num: true, value: tx?.price ?? h?.price ?? '', required: true, hint: 'Il prezzo a cui è stato eseguito l\'acquisto' }, { id: 'fee', label: 'Commissioni (€)', num: true, value: tx?.fee ?? '', placeholder: '0' }],
+      { id: 'accountId', label: 'Conto titoli', type: 'select', value: tx?.accountId || h?.accountId || '', options: accOptions() }
+    ],
+    validate(v) { if (!(parseNum(v.amount) > 0)) return 'Inserisci l\'importo investito.'; if (!(parseNum(v.price) > 0)) return 'Inserisci il prezzo per quota.'; if ((parseNum(v.fee) || 0) >= parseNum(v.amount)) return 'Le commissioni superano l\'importo.'; if (!v.accountId) return 'Scegli il conto titoli.'; },
+    async onSubmit(v) {
+      const amount = parseNum(v.amount), price = parseNum(v.price), fee = parseNum(v.fee) || 0, q = Math.round((amount - fee) / price * 1e6) / 1e6;
+      if (h) {
+        let hd = strip(h);
+        if (tx) hd = { ...hd, ...pacApply(hd, +tx.quantity || 0, +tx.amount || 0, -1) };
+        hd = { ...hd, ...pacApply(hd, q, amount, 1) };
+        if (!hd.priceDate || v.date >= hd.priceDate) { hd.price = price; hd.priceDate = v.date; }
+        if (isNew && hd.pac && hd.pac.nextDate) hd.pac = { ...hd.pac, nextDate: nextDate(hd.pac.nextDate, 'mensile') };
+        if (!await put('holdings', h.id, hd)) return false;
+      }
+      const ok = await put('transactions', tx?.id || uid(), { ...(tx ? strip(tx) : { createdAt: Date.now() }), kind: 'investimento', amount, date: v.date, accountId: v.accountId, holdingId: h?.id || tx?.holdingId || '', quantity: q, price, fee, note: 'PAC ' + name });
+      ok && toast(`${isNew ? 'Registrato' : 'Aggiornato'}: ${nf.format(q)} quote di ${name}`);
+      return ok;
+    },
+    deleteLabel: 'Elimina acquisto',
+    onDelete: isNew ? null : async () => {
+      if (h && !await put('holdings', h.id, { ...strip(h), ...pacApply(h, +tx.quantity || 0, +tx.amount || 0, -1) })) return false;
+      const ok = await del('transactions', tx.id); ok && toast('Acquisto eliminato, quote tolte dal titolo'); return ok;
+    }
   });
 }
 function goalForm(g) {
@@ -2024,7 +2084,8 @@ document.addEventListener('click', e => {
   if (a === 'year') { S.ui.year = String(+S.ui.year + +t.dataset.d); render(); return; }
   if (a === 'month') { S.ui[t.dataset.key] = addMonths(S.ui[t.dataset.key], +t.dataset.d); render(); return; }
   if (a === 'new-tx') return txForm();
-  if (a === 'edit-tx') return txForm(byId('transactions', id));
+  if (a === 'edit-tx') { const tx = byId('transactions', id); return tx && tx.kind === 'investimento' ? pacBuyForm(byId('holdings', tx.holdingId), tx) : txForm(tx); }
+  if (a === 'pac-buy') return pacBuyForm(byId('holdings', id));
   if (a === 'new-acc') return accForm();
   if (a === 'edit-acc') return accForm(acc(id));
   if (a === 'card-pay') {
