@@ -247,6 +247,9 @@ body.locked .app{grid-template-columns:minmax(0,1fr)}
 
 /* Intestazioni con selettore di mese/anno: titolo e selettore sulla stessa riga anche su telefono */
 .lbl-short{display:none}
+.bank-logo{display:inline-grid;place-items:center;flex:none;border-radius:10px;overflow:hidden;background:#fff;border:1px solid var(--line)}
+.bank-logo img{width:70%;height:70%;object-fit:contain}
+.bank-logo.ini{border:0;color:#3A3340;font-weight:700;font-size:.78rem;letter-spacing:.02em}
 .eye-btn{flex:none;color:var(--muted)}
 .eye-btn[aria-pressed="true"]{color:var(--fg)}
 body.hide-summary .kpis.privacy .v,body.hide-summary .kpis.privacy .s{filter:blur(9px);user-select:none;-webkit-user-select:none;pointer-events:none}
@@ -307,7 +310,7 @@ html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
 <script>
 (() => {
 "use strict";
-const APP_VERSION = '41';
+const APP_VERSION = '42';
 /* ---------- utilità ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -394,6 +397,28 @@ const _cf = {};
 const moneyC = (v, cur = BASE, dec) => { const k = cur + '|' + dec; if (!_cf[k]) { try { _cf[k] = new Intl.NumberFormat('it-IT', { style: 'currency', currency: cur, useGrouping: 'always', ...(dec === 0 ? { maximumFractionDigits: 0 } : {}) }); } catch (e) { _cf[k] = { format: x => (+x).toFixed(2) + ' ' + cur }; } } return _cf[k].format(v || 0); };
 const OLD2MAC = Object.fromEntries(PALETTE.map((c, i) => [c, MACARON[i % MACARON.length]]));
 const accColor = a => OLD2MAC[a?.color] || a?.color || '#E3E5EC';
+// Logo della banca: dal dominio scritto nel conto o riconosciuto dal nome; se manca, iniziali su colore macaron
+const BANK_DOMAINS = [
+  [/intesa/i, 'intesasanpaolo.com'], [/hello ?bank/i, 'hellobank.fr'], [/bourso/i, 'boursobank.com'], [/revolut/i, 'revolut.com'],
+  [/paypal/i, 'paypal.com'], [/trade ?republic/i, 'traderepublic.com'], [/amex|american express/i, 'americanexpress.com'],
+  [/unicredit/i, 'unicredit.it'], [/\bbnl\b/i, 'bnl.it'], [/fineco/i, 'finecobank.com'], [/bper/i, 'bper.it'], [/banco ?bpm/i, 'bancobpm.it'],
+  [/mediolanum/i, 'bancamediolanum.it'], [/\bing\b/i, 'ing.it'], [/n26/i, 'n26.com'], [/poste|bancoposta/i, 'poste.it'], [/credem/i, 'credem.it'],
+  [/sella/i, 'sella.it'], [/webank/i, 'webank.it'], [/widiba/i, 'widiba.it'], [/chebanca|mediobanca/i, 'mediobanca.com'], [/illimity/i, 'illimity.com'],
+  [/hype/i, 'hype.it'], [/satispay/i, 'satispay.com'], [/\bwise\b/i, 'wise.com'], [/bunq/i, 'bunq.com'], [/scalable/i, 'scalable.capital'],
+  [/degiro/i, 'degiro.com'], [/directa/i, 'directa.it'], [/binance/i, 'binance.com'], [/coinbase/i, 'coinbase.com'],
+  [/cr[ée]dit agricole/i, 'credit-agricole.fr'], [/soci[ée]t[ée] g[ée]n[ée]rale/i, 'societegenerale.fr'], [/bnp/i, 'bnpparibas.com'], [/\blcl\b/i, 'lcl.fr'],
+  [/\bcic\b/i, 'cic.fr'], [/banque postale/i, 'labanquepostale.fr'], [/caisse d.?epargne/i, 'caisse-epargne.fr'], [/cr[ée]dit mutuel/i, 'creditmutuel.fr'],
+  [/\bcfm\b|indosuez/i, 'ca-indosuez.com'], [/barclays/i, 'barclays.com'], [/\bhsbc\b/i, 'hsbc.com'], [/ubs/i, 'ubs.com'], [/monabanq/i, 'monabanq.com'],
+  [/fortuneo/i, 'fortuneo.fr'], [/visa/i, 'visa.com'], [/mastercard/i, 'mastercard.com']
+];
+const bankDomain = a => { const d = String(a?.bankDomain || '').trim().replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/.*$/, ''); if (d) return d; const m = BANK_DOMAINS.find(([re]) => re.test(a?.name || '')); return m ? m[1] : ''; };
+const accInitials = a => String(a?.name || '?').replace(/\(.*?\)/g, '').trim().split(/\s+/).filter(w => w.length > 2 || /^[A-Z]/.test(w)).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
+function bankLogo(a, size = 34) {
+  const dom = bankDomain(a), ini = esc(accInitials(a)), bg = esc(accColor(a));
+  const fallback = `<span class="bank-logo ini" style="width:${size}px;height:${size}px;background:${bg}">${ini}</span>`;
+  if (!dom) return fallback;
+  return `<span class="bank-logo" style="width:${size}px;height:${size}px"><img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(dom)}&amp;sz=64" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.outerHTML='${fallback.replace(/"/g, '&quot;').replace(/'/g, "\\'")}'"></span>`;
+}
 const accCur = id => acc(id)?.currency || BASE;
 const txCur = t => t.currency || BASE;
 const txOrig = t => t.origAmount != null ? +t.origAmount : +t.amount;
@@ -1145,19 +1170,13 @@ VIEWS.patrimonio = () => {
       const lastPay = sortTx(S.transactions.filter(t => (t.kind === 'giroconto') && t.toAccountId === a.id))[0];
       const since = lastPay ? lastPay.date : '';
       const spent = S.transactions.filter(t => t.kind === 'spesa' && !t.paidBy && t.accountId === a.id && (!since || t.date > since)).reduce((s2, t) => s2 + +t.amount, 0);
-      return `<div class="list-row" style="flex-wrap:wrap"><div class="l" style="align-items:flex-start"><i class="dot" style="background:${esc(accColor(a))};margin-top:6px"></i><div style="min-width:0"><b>${esc(a.name)}</b><small class="muted" style="display:block">${from ? 'Addebito su ' + esc(from.name) : 'Conto di addebito non impostato'} · ${lastPay ? 'ultimo addebito ' + dShort(lastPay.date) + ' (' + money(+lastPay.amount) + ')' : 'nessun addebito registrato'}${since ? ' · speso da allora ' + money(spent) : ''}</small></div></div>
+      return `<div class="list-row" style="flex-wrap:wrap"><div class="l" style="align-items:flex-start">${bankLogo(a, 30)}<div style="min-width:0"><b>${esc(a.name)}</b><small class="muted" style="display:block">${from ? 'Addebito su ' + esc(from.name) : 'Conto di addebito non impostato'} · ${lastPay ? 'ultimo addebito ' + dShort(lastPay.date) + ' (' + money(+lastPay.amount) + ')' : 'nessun addebito registrato'}${since ? ' · speso da allora ' + money(spent) : ''}</small></div></div>
         <div style="display:flex;gap:8px;align-items:center;margin-left:auto"><span class="num ${due > 0.005 ? 'neg' : due < -0.005 ? 'pos' : 'muted'}" style="font-weight:600">${due > 0.005 ? 'Da pagare ' + money(due) : due < -0.005 ? 'A credito ' + money(-due) : 'Saldata'}</span>${due > 0.005 ? `<button class="btn small primary" data-act="card-pay" data-id="${esc(a.id)}">Registra addebito</button>` : ''}</div></div>`;
     }).join('')}</section>`; })()}
   <section class="panel"><div class="panel-h"><h2>Conti</h2><span class="muted num">Totale ${money(accs.filter(a => a.type !== 'credito').reduce((s, a) => s + (bal[a.id] || 0), 0))}</span></div>
-    ${accs.filter(a => a.type !== 'credito').length ? `<div class="acc-list">${accs.filter(a => a.type !== 'credito').map(a => `<button class="acc" data-act="edit-acc" data-id="${esc(a.id)}"><div class="acc-top"><span class="pill">${esc(ACC_TYPES[a.type] || a.type)}</span><i class="dot" style="background:${esc(accColor(a))}"></i></div><b>${esc(a.name)}</b><span class="v num ${bal[a.id] < 0 ? 'neg' : ''}">${accCur(a.id) !== BASE ? moneyC(balN[a.id] || 0, accCur(a.id)) : money(bal[a.id] || 0)}</span>${accCur(a.id) !== BASE ? `<span class="muted num" style="font-size:.8rem">${rateOf(accCur(a.id)) ? '≈ ' + money(bal[a.id] || 0) : 'Cambio ' + accCur(a.id) + ' mancante'}</span>` : ''}</button>`).join('')}</div>`
+    ${accs.filter(a => a.type !== 'credito').length ? `<div class="acc-list">${accs.filter(a => a.type !== 'credito').map(a => `<button class="acc" data-act="edit-acc" data-id="${esc(a.id)}"><div class="acc-top">${bankLogo(a)}<span class="pill">${esc(ACC_TYPES[a.type] || a.type)}</span></div><b>${esc(a.name)}</b><span class="v num ${bal[a.id] < 0 ? 'neg' : ''}">${accCur(a.id) !== BASE ? moneyC(balN[a.id] || 0, accCur(a.id)) : money(bal[a.id] || 0)}</span>${accCur(a.id) !== BASE ? `<span class="muted num" style="font-size:.8rem">${rateOf(accCur(a.id)) ? '≈ ' + money(bal[a.id] || 0) : 'Cambio ' + accCur(a.id) + ' mancante'}</span>` : ''}</button>`).join('')}</div>`
       : `<div class="empty"><p>Aggiungi il tuo primo conto: conto corrente, carta, contanti o conto titoli.</p><button class="btn primary" data-act="new-acc">+ Conto</button></div>`}
   </section>
-  ${(() => { const funds = S.accounts.filter(a => a.reserve && !a.archived); if (!funds.length) return ''; const y = todayISO().slice(0, 4);
-    return `<section class="panel"><div class="panel-h"><div><h2>Fondi di accantonamento</h2><span class="muted" style="font-size:.82rem">Soldi messi da parte per spese future, come le tasse dell'anno prossimo</span></div></div>${funds.map(f => {
-      const tin = S.transactions.filter(t => t.kind === 'accantonamento' && t.toAccountId === f.id && String(t.date).startsWith(y));
-      const inY = tin.reduce((s, t) => s + +t.amount, 0), outY = S.transactions.filter(t => t.kind === 'spesa' && t.accountId === f.id && String(t.date).startsWith(y)).reduce((s, t) => s + +t.amount, 0);
-      const cats = [...new Set(tin.map(t => cat(t.categoryId)?.name).filter(Boolean))].join(', ');
-      return `<div class="list-row"><div class="l" style="align-items:flex-start"><i class="dot" style="background:${esc(accColor(f))};margin-top:6px"></i><div style="min-width:0"><b>${esc(f.name)}</b><small class="muted" style="display:block">${y}: accantonati ${money0(inY)}${cats ? ' (' + esc(cats) + ')' : ''} · usati ${money0(outY)}</small></div></div><b class="num">${money(bal[f.id] || 0)}</b></div>`; }).join('')}</section>`; })()}
   <section class="panel"><div class="panel-h"><h2>Portafoglio investimenti</h2>
     <div style="display:flex;gap:8px;flex-wrap:wrap"><span class="pill num">Valore ${money(inv)}</span><span class="pill num ${inv - cost >= 0 ? 'pos' : 'neg'}">${inv - cost >= 0 ? '+' : '−'}${money(Math.abs(inv - cost))} (${pct(cost ? (inv - cost) / cost : NaN)})</span></div></div>
     ${hs.length ? `<div class="tbl-wrap"><table><thead><tr><th>Titolo</th><th>Classe</th><th class="r">Quantità</th><th class="r">Prezzo medio</th><th class="r">Prezzo attuale</th><th class="r">Valore</th><th class="r">P/L</th><th class="r">Peso</th></tr></thead><tbody>
@@ -1440,13 +1459,14 @@ function accForm(a) {
       { id: 'currency', label: 'Valuta del conto', type: 'select', value: a.currency || BASE, options: curOptions() },
       { id: 'payFrom', label: 'Conto di addebito della carta', type: 'select', value: a.payFrom || '', options: [{ v: '', l: '— scegli —' }, ...activeAccounts().filter(x => x.type !== 'credito' && x.id !== a.id).map(x => ({ v: x.id, l: x.name }))], hint: 'Il conto corrente su cui la banca addebita l\'estratto conto della carta' },
       { id: 'reserve', label: 'Fondo di accantonamento: le spese pagate da questo conto sono già state contate quando hai accantonato, quindi non contano di nuovo come uscite', type: 'checkbox', value: !!a.reserve },
+      { id: 'bankDomain', label: 'Sito della banca, per il logo (facoltativo)', value: a.bankDomain || '', placeholder: 'Es. hellobank.fr', hint: 'Lo riconosco da solo per le banche più comuni; scrivilo se il logo non compare (es. per un Livret A, il sito della banca che lo gestisce)' },
       { id: 'color', label: 'Colore', type: 'color', value: a.color, palette: MACARON },
       ...(isNew ? [] : [{ id: 'archived', label: 'Archiviato (nascosto dagli elenchi, il saldo resta nel patrimonio)', type: 'checkbox', value: !!a.archived }])
     ],
     onChange(v, form) { showField(form, 'payFrom', v.type === 'credito'); showField(form, 'reserve', v.type !== 'credito'); },
     validate: v => !v.name.trim() ? 'Dai un nome al conto.' : isNaN(parseNum(v.openingBalance || '0')) ? 'Il saldo iniziale non è un numero valido.' : '',
     async onSubmit(v) {
-      const doc = { ...strip(a), name: v.name.trim(), type: v.type, currency: v.currency || BASE, reserve: v.type === 'credito' ? false : !!v.reserve, payFrom: v.type === 'credito' ? (v.payFrom || '') : '', openingBalance: parseNum(v.openingBalance || '0') || 0, openingDate: v.openingDate || '', color: v.color || a.color, archived: !!v.archived };
+      const doc = { ...strip(a), name: v.name.trim(), type: v.type, currency: v.currency || BASE, reserve: v.type === 'credito' ? false : !!v.reserve, payFrom: v.type === 'credito' ? (v.payFrom || '') : '', bankDomain: String(v.bankDomain || '').trim(), openingBalance: parseNum(v.openingBalance || '0') || 0, openingDate: v.openingDate || '', color: v.color || a.color, archived: !!v.archived };
       const ok = await put('accounts', a.id || uid(), doc); ok && toast(isNew ? 'Conto creato' : 'Conto aggiornato'); return ok;
     },
     deleteLabel: used ? 'Elimina (ha movimenti)' : 'Elimina',
