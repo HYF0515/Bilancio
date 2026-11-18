@@ -259,6 +259,10 @@ body.locked .app{grid-template-columns:minmax(0,1fr)}
 
 /* Intestazioni con selettore di mese/anno: titolo e selettore sulla stessa riga anche su telefono */
 .lbl-short{display:none}
+.prop-actions{display:flex;flex-wrap:nowrap;gap:8px;margin:0 0 4px;overflow-x:auto;scrollbar-width:none}
+.prop-actions::-webkit-scrollbar{display:none}
+.prop-actions .btn{flex:none;white-space:nowrap}
+.prop-addr{margin:-4px 0 10px;font-size:.85rem}
 .pc{font-size:.78em;letter-spacing:0}
 .splash{position:fixed;inset:0;z-index:200;background:#FBF7F2;transition:opacity .35s ease}
 .splash img{position:absolute;left:50%;top:50%;width:96px;height:96px;margin:-48px 0 0 -48px;border-radius:24px;box-shadow:0 8px 26px rgba(47,44,51,.10)}
@@ -389,7 +393,7 @@ html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
 <script>
 (() => {
 "use strict";
-const APP_VERSION = '50';
+const APP_VERSION = '51';
 /* ---------- utilità ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -982,7 +986,7 @@ function mortgageStats(pr) {
 }
 VIEWS.proprieta = () => {
   const list = propsSorted(), pr = curProp();
-  if (!pr) return `<div class="head"><div><div class="eyebrow">Proprietà</div><h1>Le tue proprietà</h1></div></div>
+  if (!pr) return `<div class="head with-nav"><div><div class="eyebrow">Proprietà</div><h1>Le tue proprietà</h1></div></div>
     <section class="panel empty"><h2>Aggiungi la tua prima proprietà</h2><p>Per esempio la casa di Milano o quella di Beausoleil. Quando registri una spesa (luce, condominio, rata del mutuo…) potrai scegliere a quale proprietà si riferisce, e qui vedrai mutuo pagato, debito residuo e spese di ciascuna.</p><button class="btn primary" data-act="new-prop">+ Aggiungi proprietà</button></section>`;
   const tabs = `<div class="prop-tabs" role="tablist" aria-label="Proprietà">${list.map(p => `<button class="prop-tab" role="tab" aria-selected="${p.id === pr.id}" data-act="prop-sel" data-id="${esc(p.id)}">${esc(p.name)}</button>`).join('')}<button class="prop-tab add" data-act="new-prop">+ Aggiungi</button></div>`;
   const ms = mortgageStats(pr), year = S.ui.propYear, mcat = pr.mortgage?.categoryId || '';
@@ -1007,8 +1011,9 @@ VIEWS.proprieta = () => {
     </div>
     ${ms ? `<div style="margin-top:14px;display:flex;flex-direction:column;gap:6px"><div class="bar" style="height:12px"><i style="width:${Math.min(100, ms.pctRepaid * 100).toFixed(1)}%;background:var(--pos)"></i></div><div style="display:flex;justify-content:space-between;font-size:.8rem" class="muted"><span>Pagato ${money0(paidCap)}</span><span>Totale mutuo ${money0(ms.principal)}</span></div></div>` : ''}
   </section>`;
-  const actions = `<button class="btn" data-act="edit-prop" data-id="${esc(pr.id)}">Modifica dati</button>${ms ? `<button class="btn" data-act="prop-pay">+ Rata mutuo</button>` : ''}<button class="btn primary" data-act="prop-exp">+ Spesa</button>`;
-  const head = `${tabs}<div class="head"><div><div class="eyebrow">Proprietà</div><h1>${esc(pr.name)}</h1>${pr.address ? `<span class="muted">${esc(pr.address)}</span>` : ''}</div><div class="head-actions">${actions}</div></div>`;
+  const actions = `<div class="prop-actions"><button class="btn small" data-act="edit-prop" data-id="${esc(pr.id)}">Modifica dati</button>${ms ? `<button class="btn small" data-act="prop-pay">+ Rata mutuo</button>` : ''}<button class="btn small primary" data-act="prop-exp">+ Spesa</button></div>`;
+  // titolo della sezione in alto come nelle altre pagine, poi le proprietà e i pulsanti su una sola riga
+  const head = `<div class="head with-nav"><div><div class="eyebrow">Proprietà</div><h1>${esc(pr.name)}</h1></div></div>${tabs}${pr.address ? `<p class="muted prop-addr">${esc(pr.address)}</p>` : ''}${actions}`;
   let mortHTML = '';
   if (ms) {
     const last = ms.rows.slice(-6).reverse();
