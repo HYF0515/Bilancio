@@ -266,6 +266,7 @@ body.locked .app{grid-template-columns:minmax(0,1fr)}
 <script>
 (() => {
 "use strict";
+const APP_VERSION = '36';
 /* ---------- utilità ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -1161,6 +1162,7 @@ VIEWS.impostazioni = () => {
     </section>
     <section class="panel"><div class="panel-h"><h2>Account e sincronizzazione</h2></div>
       <div class="list-row"><div class="l"><span class="muted">Accesso come</span></div><b style="overflow:hidden;text-overflow:ellipsis">${esc(S.user?.email || '')}</b></div>
+      <div class="list-row"><div class="l"><span class="muted">Versione app</span></div><span style="display:flex;gap:8px;align-items:center"><span class="mono">${APP_VERSION}</span><button class="btn small" data-act="check-update">Cerca aggiornamenti</button></span></div>
       <div class="list-row"><div class="l"><span class="muted">Database</span></div><span>Firebase · ${esc(getConfig().projectId || '')}</span></div>
       <div class="list-row"><div class="l"><span class="muted">Stato</span></div><span>${netDown ? (pendingWrites ? 'Offline · modifiche in attesa' : 'Offline') : pendingWrites ? 'Sincronizzazione in corso' : 'Sincronizzato'}</span></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn" data-act="set-pass">${firebase.auth().currentUser?.providerData.some(p => p.providerId === 'password') ? 'Cambia password' : 'Imposta password per il telefono'}</button><button class="btn" data-act="sync-now">Sincronizza ora</button><button class="btn danger" data-act="logout">Esci</button></div>
@@ -1860,6 +1862,7 @@ document.addEventListener('click', e => {
   if (a === 'logout') return logout(t);
   if (a === 'signup') return authSubmit('signup');
   if (a === 'google') return googleLogin();
+  if (a === 'check-update') return checkUpdate(t);
   if (a === 'set-pass') return setPassword();
   if (a === 'email-login') { const f = $('#auth-form'); if (f) { f.hidden = false; t.hidden = true; } return; }
   if (a === 'reset-pass') return resetPass();
@@ -2075,7 +2078,29 @@ async function boot() {
     first = false;
   });
 }
-if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+// Aggiornamenti automatici: controllo una nuova versione all'apertura e ogni volta che l'app torna in primo piano;
+// quando arriva, ricarico la pagina (aspettando che non ci sia un modulo aperto, per non perdere quello che stai scrivendo).
+let swReg = null;
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
+    swReg = reg;
+    const check = () => reg.update().catch(() => {});
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+    window.addEventListener('focus', check);
+    setInterval(check, 30 * 60e3);
+  }).catch(() => {});
+  let reloading = false; const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloading || !hadController) return;
+    const go = () => { if (reloading) return; if ($('#modal') && !$('#modal').hidden) { setTimeout(go, 2000); return; } reloading = true; location.reload(); };
+    go();
+  });
+}
+async function checkUpdate(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Controllo…'; }
+  try { if (swReg) await swReg.update(); } catch (e) {}
+  setTimeout(() => location.reload(), 600);
+}
 boot();
 })();
 </script>
