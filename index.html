@@ -271,6 +271,7 @@ body.locked .app{grid-template-columns:minmax(0,1fr)}
 
 /* Intestazioni con selettore di mese/anno: titolo e selettore sulla stessa riga anche su telefono */
 .lbl-short{display:none}
+.pc{font-size:.78em;letter-spacing:0}
 :root{--splash:#D5E1E8;--splash-fg:#4F6475}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--splash:#25232A;--splash-fg:#B3CAD8}}
 :root[data-theme="dark"]{--splash:#25232A;--splash-fg:#B3CAD8}
@@ -400,7 +401,7 @@ html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
 <script>
 (() => {
 "use strict";
-const APP_VERSION = '48';
+const APP_VERSION = '49';
 /* ---------- utilità ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -411,7 +412,9 @@ const nf = { format: v => { const t = (+v || 0).toFixed(4).replace(/0+$/, '').re
 const grp = (v, dec) => { const n = +v || 0, neg = n < 0 && Math.abs(n).toFixed(dec) !== (0).toFixed(dec); let [i, d] = Math.abs(n).toFixed(dec).split('.'); i = i.replace(/\B(?=(\d{3})+(?!\d))/g, '.'); return (neg ? '-' : '') + i + (d ? ',' + d : ''); };
 const money = v => grp(v, 2) + '\u00a0€';
 const money0 = v => grp(Math.round(+v || 0), 0) + '\u00a0€';
-const pct = v => Number.isFinite(v) ? (v * 100).toLocaleString('it-IT', { maximumFractionDigits: 1, minimumFractionDigits: 1 }) + '%' : '—';
+const pctT = v => Number.isFinite(v) ? (v * 100).toLocaleString('it-IT', { maximumFractionDigits: 1, minimumFractionDigits: 1 }) + '%' : '—';
+// percentuali in un corpo più piccolo (pctT per i testi semplici, es. suggerimenti)
+const pct = v => `<span class="pc">${pctT(v)}</span>`;
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pad = n => String(n).padStart(2, '0');
 const isoOf = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
@@ -1005,7 +1008,7 @@ VIEWS.proprieta = () => {
   const paidCap = ms ? ms.principal - ms.res : 0;
   const summary = `<section class="panel"><div class="panel-h with-nav"><h2>Resoconto</h2>${yearNav}</div>
     <div class="kpis">
-      <div class="kpi"><span class="eyebrow">Mutuo pagato</span><span class="v num pos">${ms ? money0(paidCap) : allMortPaid ? money0(allMortPaid) : '—'}</span><span class="s">${ms ? `${pct(ms.pctRepaid)} del capitale · rate versate ${money0(ms.paid)}` : allMortPaid ? 'Rate versate finora' : 'Nessun mutuo inserito'}</span></div>
+      <div class="kpi"><span class="eyebrow">Mutuo pagato</span><span class="v num pos">${ms ? money0(paidCap) : allMortPaid ? money0(allMortPaid) : '—'}</span><span class="s">${ms ? `${pctT(ms.pctRepaid)} del capitale · rate versate ${money0(ms.paid)}` : allMortPaid ? 'Rate versate finora' : 'Nessun mutuo inserito'}</span></div>
       <div class="kpi"><span class="eyebrow">Rimane da pagare</span><span class="v num">${ms ? money0(ms.res) : '—'}</span><span class="s">${ms ? (ms.monthsLeft ? `${ms.monthsLeft} rate · fine ${ymShort(ms.endYm)} ${ms.endYm.slice(0, 4)}` : ms.res <= 0.005 ? 'Mutuo estinto' : 'Capitale residuo') : 'Inserisci il mutuo in “Modifica dati”'}</span></div>
       <div class="kpi"><span class="eyebrow">Spese ${year}</span><span class="v num">${money0(exp)}</span><span class="s">Escluso il mutuo${months ? ` · ${money0(exp / months)}/mese` : ''}</span></div>
       <div class="kpi"><span class="eyebrow">Totale ${year}</span><span class="v num">${money0(tot)}</span><span class="s">Rate ${money0(mort)} + spese ${money0(exp)}${othersTot ? ` · pagati da altri ${money0(othersTot)}` : ''}${inc ? ` · entrate +${money0(inc)}` : ''}</span></div>
@@ -1124,7 +1127,7 @@ function catDonut(byCat) {
   let off = 0, arcs = '';
   for (const r of rows) {
     const len = r.v / tot * C;
-    arcs += `<circle r="${R}" cx="100" cy="100" fill="none" stroke="${esc(r.c?.color || '#C9CDD6')}" stroke-width="30" stroke-dasharray="${Math.max(0.01, len - gap).toFixed(2)} ${(C - Math.max(0.01, len - gap)).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 100 100)"><title>${esc(r.c?.name || 'Senza categoria')} · ${money(r.v)} (${pct(r.v / tot)})</title></circle>`;
+    arcs += `<circle r="${R}" cx="100" cy="100" fill="none" stroke="${esc(r.c?.color || '#C9CDD6')}" stroke-width="30" stroke-dasharray="${Math.max(0.01, len - gap).toFixed(2)} ${(C - Math.max(0.01, len - gap)).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 100 100)"><title>${esc(r.c?.name || 'Senza categoria')} · ${money(r.v)} (${pctT(r.v / tot)})</title></circle>`;
     off += len;
   }
   return `<div class="donut-wrap"><div class="donut"><svg viewBox="0 0 200 200" role="img" aria-label="Ripartizione delle spese per categoria">${arcs}</svg><div class="donut-c"><span class="lbl">Totale</span><span class="v num">${money0(tot)}</span></div></div>
