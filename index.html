@@ -403,7 +403,7 @@ html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
 <script>
 (() => {
 "use strict";
-const APP_VERSION = '58';
+const APP_VERSION = '59';
 /* ---------- utilità ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -929,7 +929,7 @@ function monthBudgetCard(ym, st) {
       <div><span class="lbl">${left >= 0 ? 'Rimanente' : 'Oltre il budget'}</span><span class="v num ${left < 0 ? 'neg' : ''}">${money(Math.abs(left))}</span></div>
       <div><span class="lbl">${daysLeft ? 'Al giorno' : 'Usato'}</span><span class="v num">${daysLeft ? money(Math.max(0, left) / daysLeft) : pct(ratio)}</span></div>
     </div>
-    <div class="bcard-foot"><span class="muted">${pct(ratio)}</span><span class="muted">${cur ? `Mancano ${daysLeft} giorn${daysLeft === 1 ? 'o' : 'i'}` : future ? 'Mese non iniziato' : 'Mese concluso'}</span></div>
+    <div class="bcard-foot"><span class="muted">${pct(ratio)}</span><span class="muted">${cur ? (daysLeft === 1 ? 'Manca 1 giorno' : `Mancano ${daysLeft} giorni`) : future ? 'Mese non iniziato' : 'Mese concluso'}</span></div>
     <div class="bar ${ratio > 1 ? 'over' : ratio >= .9 ? 'near' : ''}" style="height:8px"><i style="width:${Math.min(100, ratio * 100).toFixed(1)}%"></i></div>
   </section>`;
 }
@@ -1145,19 +1145,23 @@ function catDonut(byCat) {
 }
 function yearBudgetPanel(year) {
   const y = yearBudget(year);
-  const head = `<div class="panel-h"><h2>Budget ${year}</h2><a class="btn small ghost" href="#budget">Modifica →</a></div>`;
+  const head = `<div class="panel-h"><h2>Budget ${year}</h2></div>`;
   const donut = catDonut(yearByCat(year));
   const pie = donut ? `<h3 class="sub-h">Ripartizione delle spese</h3>${donut}` : '';
   if (!y.bIds.length) return `<section class="panel">${head}<div class="empty"><p>Imposta un budget mensile per categoria per vedere come stai andando nell'anno.</p><a class="btn" href="#budget">Imposta il budget</a></div>${pie}</section>`;
   if (!y.elapsed) return `<section class="panel">${head}<p class="muted" style="margin:0">Il ${year} non è ancora iniziato. Budget previsto per l'anno: <b class="num">${money0(y.yearB)}</b>.</p></section>`;
   const diff = y.ytdB - y.spent;
   const over = y.bIds.map(id => ({ c: cat(id), d: (y.byCat[id] || 0) - y.ytdCat[id] })).filter(x => x.c && x.d >= 1).sort((a, b) => b.d - a.d).slice(0, 5);
-  return `<section class="panel">${head}
-    <div class="kpis k3 privacy">
-      <div class="kpi"><span class="eyebrow">${diff >= 0 ? 'Sotto il budget' : 'Sopra il budget'}</span><span class="v num ${diff >= 0 ? 'pos' : 'neg'}">${money0(Math.abs(diff))}</span></div>
-      <div class="kpi"><span class="eyebrow">Budget a oggi</span><span class="v num">${money0(y.ytdB)}</span></div>
-      <div class="kpi"><span class="eyebrow">${y.isCur ? 'Proiezione a fine anno' : 'Speso nell\'anno'}</span><span class="v num ${(y.isCur ? y.proj : y.spent) > y.yearB ? 'neg' : ''}">${money0(y.isCur ? y.proj : y.spent)}</span></div>
+  const ratio = y.ytdB ? y.spent / y.ytdB : 0, mLeft = 12 - y.elapsed, endV = y.isCur ? y.proj : y.spent;
+  // stesso stile del riquadro "Budget del mese" della sezione Mensile
+  return `<section class="panel bcard privacy">${head}
+    <div class="bcard-cols">
+      <div><span class="lbl">${diff >= 0 ? 'Sotto il budget' : 'Sopra il budget'}</span><span class="v num ${diff >= 0 ? 'pos' : 'neg'}">${money0(Math.abs(diff))}</span></div>
+      <div><span class="lbl">Budget a oggi</span><span class="v num">${money0(y.ytdB)}</span></div>
+      <div><span class="lbl">${y.isCur ? 'Fine anno' : 'Speso'}</span><span class="v num ${endV > y.yearB ? 'neg' : ''}">${money0(endV)}</span></div>
     </div>
+    <div class="bcard-foot"><span class="muted">${pct(ratio)}</span><span class="muted">${y.isCur ? (mLeft ? (mLeft === 1 ? 'Manca 1 mese' : `Mancano ${mLeft} mesi`) : 'Ultimo mese') : 'Anno concluso'}</span></div>
+    <div class="bar ${ratio > 1 ? 'over' : ratio >= .9 ? 'near' : ''}" style="height:8px"><i style="width:${Math.min(100, ratio * 100).toFixed(1)}%"></i></div>
     <h3 class="sub-h">Categorie oltre il budget</h3>
     ${over.length ? over.map(x => `<div class="list-row"><div class="l">${catBadge(x.c, 'spesa')}<span>${esc(x.c.name)}</span></div><span class="num neg">+${money0(x.d)}</span></div>`).join('') : `<p class="muted" style="margin:0">Nessuna categoria sopra il budget. Ottimo!</p>`}
     ${pie}
