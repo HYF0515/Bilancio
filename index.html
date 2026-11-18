@@ -659,7 +659,7 @@ const VIEWS = {};
 VIEWS.mensile = () => {
   const ym = S.ui.month, st = monthStats(ym), prev = monthStats(addMonths(ym, -1));
   const bal = balances(), liquid = sumObj(bal), inv = investTotal(), nw = liquid + inv;
-  const budgets = S.settings.budgets || {};
+  const budgets = Object.fromEntries(S.categories.map(c => [c.id, monthBudget(c.id, ym)]));
   const expCats = Object.entries(st.byCat).sort((a, b) => b[1] - a[1]);
   const delta = (cur, p, invert) => { if (!p) return ''; const d = (cur - p) / p; if (Math.abs(d) < 0.0005) return 'Uguale al mese prec.'; const good = invert ? d < 0 : d > 0; return `<span class="${good ? 'pos' : 'neg'}">${d > 0 ? '▲' : '▼'} ${pct(Math.abs(d))}</span> vs mese prec.`; };
   const today = todayISO(), horizon = isoOf(new Date(Date.now() + 30 * 864e5));
@@ -850,12 +850,14 @@ function moreMenu() {
 
 /* ---------- resoconto annuale vs budget ---------- */
 function yearBudget(year) {
-  const budgets = S.settings.budgets || {};
-  const bIds = S.categories.filter(c => c.kind === 'spesa' && annualBudget(c.id) > 0).map(c => c.id);
-  const ann = Object.fromEntries(bIds.map(id => [id, annualBudget(id)]));
+  const budgets = S.settings.budgets || {}, yb = S.settings.budgetsYear || {};
+  const bIds = S.categories.filter(c => c.kind === 'spesa' && annualBudget(c.id, year) > 0).map(c => c.id);
+  const ann = Object.fromEntries(bIds.map(id => [id, annualBudget(id, year)]));
   const monthlyB = bIds.reduce((s, id) => s + ann[id], 0) / 12;
   const today = todayISO(), cy = today.slice(0, 4);
   const elapsed = year < cy ? 12 : year > cy ? 0 : +today.slice(5, 7);
+  const monthB = Array.from({ length: 12 }, (_, i) => bIds.reduce((s, id) => s + (+yb[id] > 0 ? +yb[id] / 12 : monthBudget(id, year + '-' + pad(i + 1))), 0));
+  const ytdCat = Object.fromEntries(bIds.map(id => { let t = 0; for (let i = 0; i < elapsed; i++) t += +yb[id] > 0 ? +yb[id] / 12 : monthBudget(id, year + '-' + pad(i + 1)); return [id, t]; }));
   const frac = year === cy ? (elapsed - 1) + new Date().getDate() / new Date(+year, elapsed, 0).getDate() : elapsed;
   const byCat = {}, byMonth = Array(12).fill(0);
   let other = 0;
@@ -866,22 +868,22 @@ function yearBudget(year) {
     else other += v;
   }
   const spent = sumObj(byCat);
-  return { year, budgets, ann, bIds, monthlyB, elapsed, frac, byCat, byMonth, other, spent, ytdB: monthlyB * elapsed, yearB: monthlyB * 12, proj: frac > 0 ? spent / frac * 12 : 0, isCur: year === cy };
+  return { year, budgets, ann, bIds, monthlyB, monthB, ytdCat, elapsed, frac, byCat, byMonth, other, spent, ytdB: sumObj(ytdCat), yearB: monthlyB * 12, proj: frac > 0 ? spent / frac * 12 : 0, isCur: year === cy };
 }
 function yearBudgetPanel(year) {
   const y = yearBudget(year);
-  const head = `<div class="panel-h"><div><h2>Resoconto ${year} vs budget</h2><span class="muted" style="font-size:.82rem">Budget annuale in proporzione ai mesi trascorsi${y.isCur ? `, fino a ${MESI[y.elapsed - 1].toLowerCase()}` : ''}</span></div><a class="btn small ghost" href="#budget">Modifica budget →</a></div>`;
+  const head = `<div class="panel-h"><div><h2>Resoconto ${year} vs budget</h2><span class="muted" style="font-size:.82rem">Budget dei mesi trascorsi${y.isCur ? `, fino a ${MESI[y.elapsed - 1].toLowerCase()}` : ''}</span></div><a class="btn small ghost" href="#budget">Modifica budget →</a></div>`;
   if (!y.bIds.length) return `<section class="panel">${head}<div class="empty"><p>Imposta un budget mensile per categoria per vedere come stai andando nell'anno.</p><a class="btn" href="#budget">Imposta il budget</a></div></section>`;
   if (!y.elapsed) return `<section class="panel">${head}<p class="muted" style="margin:0">Il ${year} non è ancora iniziato. Budget previsto per l'anno: <b class="num">${money0(y.yearB)}</b>.</p></section>`;
   const diff = y.ytdB - y.spent;
-  const rows = y.bIds.map(id => ({ c: cat(id), s: y.byCat[id] || 0, b: y.ann[id] * y.elapsed / 12 })).sort((a, b) => (b.s / b.b) - (a.s / a.b));
+  const rows = y.bIds.map(id => ({ c: cat(id), s: y.byCat[id] || 0, b: y.ytdCat[id] })).sort((a, b) => (b.s / b.b) - (a.s / a.b));
   const projTile = y.isCur
     ? `<div class="kpi"><span class="eyebrow">Proiezione a fine anno</span><span class="v num ${y.proj > y.yearB ? 'neg' : ''}">${money0(y.proj)}</span><span class="s">su un budget annuo di ${money0(y.yearB)}</span></div>`
     : `<div class="kpi"><span class="eyebrow">Utilizzo del budget</span><span class="v num ${y.spent > y.yearB ? 'neg' : ''}">${pct(y.spent / y.yearB)}</span><span class="s">Budget annuo ${money0(y.yearB)}</span></div>`;
   return `<section class="panel">${head}
     <div class="kpis" style="margin-bottom:16px">
       <div class="kpi"><span class="eyebrow">Speso nel ${year}</span><span class="v num neg">${money0(y.spent)}</span><span class="s">Solo categorie con budget</span></div>
-      <div class="kpi"><span class="eyebrow">Budget a oggi</span><span class="v num">${money0(y.ytdB)}</span><span class="s">${y.elapsed} mes${y.elapsed === 1 ? 'e' : 'i'} × ${money0(y.monthlyB)}</span></div>
+      <div class="kpi"><span class="eyebrow">Budget a oggi</span><span class="v num">${money0(y.ytdB)}</span><span class="s">Somma dei budget di ${y.elapsed} mes${y.elapsed === 1 ? 'e' : 'i'}</span></div>
       <div class="kpi"><span class="eyebrow">${diff >= 0 ? 'Sotto budget' : 'Sopra budget'}</span><span class="v num ${diff >= 0 ? 'pos' : 'neg'}">${money0(Math.abs(diff))}</span><span class="s">${pct(y.spent / y.ytdB)} del budget usato</span></div>
       ${projTile}
     </div>
@@ -897,19 +899,19 @@ function yearBudgetPanel(year) {
 function yearBudgetChart(W, year) {
   const y = yearBudget(year);
   const H = 200, pl = 44, pr = 6, pt = 10, pb = 24, iw = W - pl - pr, ih = H - pt - pb;
-  const max = niceMax(Math.max(1, y.monthlyB * 1.15, ...y.byMonth));
+  const max = niceMax(Math.max(1, ...y.monthB.map(v => v * 1.15), ...y.byMonth));
   const bw = iw / 12, w = Math.max(6, Math.min(26, bw * .58));
   const yy = v => pt + ih - ih * v / max;
   let g = '';
   for (let i = 0; i <= 4; i++) { const v = max * i / 4; g += `<line class="grid-l" x1="${pl}" x2="${W - pr}" y1="${yy(v)}" y2="${yy(v)}"/><text x="${pl - 6}" y="${yy(v) + 4}" text-anchor="end">${kfmt(v)}</text>`; }
   y.byMonth.forEach((v, i) => {
     const cx = pl + bw * i + bw / 2, future = i >= y.elapsed;
-    const fill = v > y.monthlyB ? 'var(--chart-over)' : 'var(--chart-out)';
-    if (v > 0) g += `<rect x="${cx - w / 2}" y="${yy(v)}" width="${w}" height="${Math.max(0, pt + ih - yy(v))}" rx="2" fill="${fill}" ${future ? 'fill-opacity=".35"' : ''}><title>${MESI[i]} ${year} · Speso ${money(v)} su ${money(y.monthlyB)}</title></rect>`;
+    const fill = v > y.monthB[i] ? 'var(--chart-over)' : 'var(--chart-out)';
+    if (v > 0) g += `<rect x="${cx - w / 2}" y="${yy(v)}" width="${w}" height="${Math.max(0, pt + ih - yy(v))}" rx="2" fill="${fill}" ${future ? 'fill-opacity=".35"' : ''}><title>${MESI[i]} ${year} · Speso ${money(v)} su ${money(y.monthB[i])}</title></rect>`;
     if (W > 420 || i % 2 === 0) g += `<text x="${cx}" y="${H - 6}" text-anchor="middle" ${future ? 'style="opacity:.55"' : ''}>${MESI_B[i]}</text>`;
   });
-  g += `<line x1="${pl}" x2="${W - pr}" y1="${yy(y.monthlyB)}" y2="${yy(y.monthlyB)}" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4"/>`;
-  g += `<text x="${W - pr}" y="${yy(y.monthlyB) - 6}" text-anchor="end" style="fill:var(--fg);font-weight:600">${money0(y.monthlyB)}/mese</text>`;
+  g += `<path d="${y.monthB.map((b, i) => `${i ? 'L' : 'M'}${(pl + bw * i).toFixed(1)},${yy(b).toFixed(1)}H${(pl + bw * (i + 1)).toFixed(1)}`).join('')}" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4"/>`;
+  g += `<text x="${W - pr}" y="${yy(y.monthB[11]) - 6}" text-anchor="end" style="fill:var(--fg);font-weight:600">${money0(y.monthB[11])}/mese</text>`;
   return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Spese mensili ${year} rispetto al budget">${g}</svg>`;
 }
 
@@ -944,9 +946,18 @@ function txListFiltered() {
   return `<div class="panel-h"><h2>${l.length} moviment${l.length === 1 ? 'o' : 'i'}</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="pill pos num">+${money(inc)}</span><span class="pill num">−${money(exp)}</span></div></div>${txList(l.slice(0, 400))}${l.length > 400 ? `<p class="muted">Mostrati i primi 400. Restringi i filtri per vedere gli altri.</p>` : ''}`;
 }
 
-function annualBudget(id) {
-  const yb = S.settings.budgetsYear || {}, mb = S.settings.budgets || {};
-  return +yb[id] > 0 ? +yb[id] : (+mb[id] > 0 ? +mb[id] * 12 : 0);
+// Budget di una categoria in un mese: quello specifico del mese se c'è, altrimenti il predefinito.
+function monthBudget(id, ym) {
+  const bm = (S.settings.budgetsMonth || {})[ym];
+  if (bm && bm[id] != null) return +bm[id] || 0;
+  return +(S.settings.budgets || {})[id] || 0;
+}
+const hasMonthOverride = (id, ym) => { const bm = (S.settings.budgetsMonth || {})[ym]; return !!(bm && bm[id] != null); };
+// Budget annuale: quello dedicato se c'è, altrimenti la somma dei 12 budget mensili.
+function annualBudget(id, year = S.ui.budgetYear) {
+  const yb = S.settings.budgetsYear || {};
+  if (+yb[id] > 0) return +yb[id];
+  let t = 0; for (let m = 1; m <= 12; m++) t += monthBudget(id, year + '-' + pad(m)); return t;
 }
 const budgetModeSeg = () => `<div class="seg" role="group" aria-label="Tipo di budget" style="min-width:210px"><button type="button" data-act="budget-mode" data-v="mese" aria-pressed="${S.ui.budgetMode !== 'anno'}">Mensile</button><button type="button" data-act="budget-mode" data-v="anno" aria-pressed="${S.ui.budgetMode === 'anno'}">Annuale</button></div>`;
 function budgetYearView() {
@@ -956,13 +967,14 @@ function budgetYearView() {
   for (const t of S.transactions) if (isOut(t) && String(t.date).startsWith(year)) spentAll[t.categoryId] = (spentAll[t.categoryId] || 0) + (+t.amount || 0);
   const totB = y.yearB, totS = y.spent, left = totB - totS;
   const rows = cats.map(c => {
-    const own = +yb[c.id] > 0, b = annualBudget(c.id), s = spentAll[c.id] || 0, r = b ? s / b : 0;
+    const own = +yb[c.id] > 0, b = annualBudget(c.id, year), s = spentAll[c.id] || 0, r = b ? s / b : 0;
+    let sumM = 0, varies = false; for (let m = 1; m <= 12; m++) { const v = monthBudget(c.id, year + '-' + pad(m)); sumM += v; if (hasMonthOverride(c.id, year + '-' + pad(m))) varies = true; }
     const expected = b * y.elapsed / 12;
     const cls = b && r > 1 ? 'over' : b && s > expected * 1.05 && y.isCur ? 'near' : '';
-    const sub = own ? `<small class="muted" style="display:block;font-size:.75rem">Budget annuale dedicato${+mb[c.id] ? ` · mensile ${money0(+mb[c.id])}` : ''}</small>` : (+mb[c.id] ? `<small class="muted" style="display:block;font-size:.75rem">Da budget mensile: 12 × ${money0(+mb[c.id])}</small>` : '');
+    const sub = own ? `<small class="muted" style="display:block;font-size:.75rem">Budget annuale dedicato${+mb[c.id] ? ` · mensile ${money0(+mb[c.id])}` : ''}</small>` : (sumM ? `<small class="muted" style="display:block;font-size:.75rem">${varies ? 'Somma dei budget dei 12 mesi' : 'Da budget mensile: 12 × ' + money0(sumM / 12)}</small>` : '');
     return `<tr><td><div class="catname"><i class="dot" style="background:${esc(c.color)}"></i><span>${esc(c.name)}</span></div>${sub}
       <div class="bar ${cls}" style="margin-top:8px"><i style="width:${Math.min(100, r * 100).toFixed(1)}%"></i></div></td>
-      <td class="r" style="width:160px"><input class="input num" style="text-align:right" id="by-${esc(c.id)}" data-budget-year="${esc(c.id)}" inputmode="decimal" placeholder="${+mb[c.id] ? String(+mb[c.id] * 12).replace('.', ',') : '—'}" value="${own ? String(+yb[c.id]).replace('.', ',') : ''}" aria-label="Budget annuale ${esc(c.name)}"></td>
+      <td class="r" style="width:160px"><input class="input num" style="text-align:right" id="by-${esc(c.id)}" data-budget-year="${esc(c.id)}" inputmode="decimal" placeholder="${sumM ? String(Math.round(sumM * 100) / 100).replace('.', ',') : '—'}" value="${own ? String(+yb[c.id]).replace('.', ',') : ''}" aria-label="Budget annuale ${esc(c.name)}"></td>
       <td class="r num">${money0(s)}${b ? `<br><span class="muted" style="font-size:.78rem">${pct(r)}</span>` : ''}</td>
       <td class="r num ${b && b - s < 0 ? 'neg' : ''}">${b ? money0(b - s) : '<span class="muted">—</span>'}</td></tr>`;
   }).join('');
@@ -975,13 +987,13 @@ function budgetYearView() {
     <div class="kpi"><span class="eyebrow">Disponibile</span><span class="v num ${left < 0 ? 'neg' : 'pos'}">${money0(left)}</span><span class="s">${y.isCur ? `${12 - y.elapsed} mes${12 - y.elapsed === 1 ? 'e' : 'i'} dopo questo · ${money0(Math.max(0, left) / Math.max(1, 13 - y.elapsed))}/mese` : (y.elapsed ? 'Anno chiuso' : 'Anno non iniziato')}</span></div>
     <div class="kpi"><span class="eyebrow">Proiezione a fine anno</span><span class="v num ${totB && y.proj > totB ? 'neg' : ''}">${y.isCur ? money0(y.proj) : money0(totS)}</span><span class="s">${y.isCur ? 'Al ritmo di spesa attuale' : 'Spesa effettiva'}</span></div>
   </section>
-  <section class="panel"><div class="panel-h"><div><h2>Per categoria</h2><span class="muted" style="font-size:.82rem">Se non inserisci un budget annuale uso 12 × il budget mensile. Utile per spese irregolari come viaggi, assicurazioni, tasse.</span></div><span class="muted" style="font-size:.85rem">Scrivi un importo e premi Invio</span></div>
+  <section class="panel"><div class="panel-h"><div><h2>Per categoria</h2><span class="muted" style="font-size:.82rem">Se non inserisci un budget annuale uso la somma dei budget dei 12 mesi. Utile per spese irregolari come viaggi, assicurazioni, tasse.</span></div><span class="muted" style="font-size:.85rem">Scrivi un importo e premi Invio</span></div>
     ${cats.length ? `<div class="tbl-wrap"><table><thead><tr><th>Categoria</th><th class="r">Budget annuale</th><th class="r">Speso</th><th class="r">Residuo</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty"><p>Crea prima le categorie di spesa nelle impostazioni.</p></div>`}
   </section>`;
 }
 VIEWS.budget = () => {
   if (S.ui.budgetMode === 'anno') return budgetYearView();
-  const ym = S.ui.budgetMonth, st = monthStats(ym), budgets = S.settings.budgets || {};
+  const ym = S.ui.budgetMonth, st = monthStats(ym), budgets = Object.fromEntries(S.categories.map(c => [c.id, monthBudget(c.id, ym)])), defB = S.settings.budgets || {};
   const cats = catsOf('spesa');
   const totB = cats.reduce((s, c) => s + (+budgets[c.id] || 0), 0), totS = cats.reduce((s, c) => s + (st.byCat[c.id] || 0), 0);
   const isCur = ym === ymOf(todayISO());
@@ -990,7 +1002,7 @@ VIEWS.budget = () => {
   const rows = cats.map(c => {
     const b = +budgets[c.id] || 0, s = st.byCat[c.id] || 0, r = b ? s / b : 0;
     const cls = b && r > 1 ? 'over' : b && r >= .8 ? 'near' : '';
-    return `<tr><td><div class="catname"><i class="dot" style="background:${esc(c.color)}"></i><span>${esc(c.name)}</span></div>${+(S.settings.budgetsYear || {})[c.id] ? `<small class="muted" style="display:block;font-size:.75rem">Budget annuale ${money0(+S.settings.budgetsYear[c.id])}</small>` : ''}
+    return `<tr><td><div class="catname"><i class="dot" style="background:${esc(c.color)}"></i><span>${esc(c.name)}</span></div>${hasMonthOverride(c.id, ym) && (+defB[c.id] || 0) !== b ? `<small class="muted" style="display:block;font-size:.75rem">Solo per ${ymLabel(ym).toLowerCase()} · predefinito ${money0(+defB[c.id] || 0)}</small>` : ''}${+(S.settings.budgetsYear || {})[c.id] ? `<small class="muted" style="display:block;font-size:.75rem">Budget annuale ${money0(+S.settings.budgetsYear[c.id])}</small>` : ''}
       <div class="bar ${cls}" style="margin-top:8px"><i style="width:${Math.min(100, r * 100).toFixed(1)}%"></i></div></td>
       <td class="r" style="width:150px"><input class="input num" style="text-align:right" id="b-${esc(c.id)}" data-budget="${esc(c.id)}" inputmode="decimal" placeholder="—" value="${b ? String(b).replace('.', ',') : ''}" aria-label="Budget ${esc(c.name)}"></td>
       <td class="r num">${money(s)}</td>
@@ -1000,12 +1012,12 @@ VIEWS.budget = () => {
   <div class="head"><div><div class="eyebrow">Budget mensile</div><h1>${ymLabel(ym)}</h1></div><div class="head-actions">${budgetModeSeg()}${monthNav('budgetMonth')}</div></div>
   <section class="kpis k5">
     <div class="kpi"><span class="eyebrow">Entrate del mese</span><span class="v num pos">${money0(st.inc)}</span><span class="s">${totB ? (st.inc - totB >= 0 ? 'Margine dopo il budget ' + money0(st.inc - totB) : 'Il budget supera le entrate di ' + money0(totB - st.inc)) : 'Totale entrate registrate'}</span></div>
-    <div class="kpi"><span class="eyebrow">Budget totale</span><span class="v num">${money0(totB)}</span><span class="s">Valido per ogni mese</span></div>
+    <div class="kpi"><span class="eyebrow">Budget totale</span><span class="v num">${money0(totB)}</span><span class="s">Budget di ${ymLabel(ym).toLowerCase()}</span></div>
     <div class="kpi"><span class="eyebrow">Speso</span><span class="v num neg">${money0(totS)}</span><span class="s">${totB ? pct(totS / totB) + ' del budget' : 'Imposta un budget per categoria'}</span></div>
     <div class="kpi"><span class="eyebrow">Disponibile</span><span class="v num ${totB - totS < 0 ? 'neg' : 'pos'}">${money0(totB - totS)}</span><span class="s">${isCur ? (dim - dayN) + ' giorni rimasti' : 'Mese chiuso'}</span></div>
     <div class="kpi"><span class="eyebrow">Proiezione fine mese</span><span class="v num ${totB && projected > totB ? 'neg' : ''}">${money0(projected)}</span><span class="s">${isCur ? 'Al ritmo di spesa attuale' : 'Spesa effettiva'}</span></div>
   </section>
-  <section class="panel"><div class="panel-h"><h2>Per categoria</h2><span class="muted" style="font-size:.85rem">Scrivi un importo e premi Invio per salvarlo</span></div>
+  <section class="panel"><div class="panel-h"><h2>Per categoria</h2><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="muted" style="font-size:.85rem">L'importo vale solo per ${ymLabel(ym).toLowerCase()}: scrivi e premi Invio</span><button class="btn small" data-act="budget-default">Usa questi budget come predefiniti</button></div></div>
     ${cats.length ? `<div class="tbl-wrap"><table><thead><tr><th>Categoria</th><th class="r">Budget</th><th class="r">Speso</th><th class="r">Residuo</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty"><p>Crea prima le categorie di spesa nelle impostazioni.</p><a class="btn" href="#impostazioni">Vai alle impostazioni</a></div>`}
   </section>`;
 };
@@ -1683,6 +1695,12 @@ document.addEventListener('click', e => {
   if (a === 'fx-refresh') return fxRefresh(true);
   if (a === 'fx-edit') return rateForm(t.dataset.cur);
   if (a === 'fx-add') return openForm({ title: 'Aggiungi una valuta', fields: [{ id: 'cur', label: 'Valuta', type: 'select', options: curOptions().filter(o => o.v !== BASE) }], async onSubmit(v) { setTimeout(() => rateForm(v.cur), 0); return true; } });
+  if (a === 'budget-default') {
+    const ym = S.ui.budgetMonth, nb = {};
+    catsOf('spesa').forEach(c => { const v = monthBudget(c.id, ym); if (v) nb[c.id] = v; });
+    saveSettings({ budgets: nb }).then(ok => ok && toast('Budget di ' + ymLabel(ym).toLowerCase() + ' impostati come predefiniti per i mesi senza budget specifico'));
+    return;
+  }
   if (a === 'budget-mode') { S.ui.budgetMode = t.dataset.v; render(); return; }
   if (a === 'ykey') { S.ui[t.dataset.key] = String(+S.ui[t.dataset.key] + +t.dataset.d); render(); return; }
   if (a === 'year') { S.ui.year = String(+S.ui.year + +t.dataset.d); render(); return; }
@@ -1745,15 +1763,17 @@ document.addEventListener('change', async e => {
     const by = { ...(S.settings.budgetsYear || {}) };
     if ((+by[el.dataset.budgetYear] || 0) === v) return;
     if (v) by[el.dataset.budgetYear] = v; else delete by[el.dataset.budgetYear];
-    if (await saveSettings({ budgetsYear: by })) toast(v ? 'Budget annuale aggiornato' : 'Budget annuale rimosso: uso 12 × il mensile');
+    if (await saveSettings({ budgetsYear: by })) toast(v ? 'Budget annuale aggiornato' : 'Budget annuale rimosso: uso la somma dei budget mensili');
   }
   else if (el.dataset.budget) {
     const v = el.value.trim() === '' ? 0 : parseNum(el.value);
     if (isNaN(v) || v < 0) { toast('Inserisci un importo valido.', true); return; }
-    const budgets = { ...(S.settings.budgets || {}) };
-    if ((+budgets[el.dataset.budget] || 0) === v) return;
-    if (v) budgets[el.dataset.budget] = v; else delete budgets[el.dataset.budget];
-    if (await saveSettings({ budgets })) toast('Budget aggiornato');
+    const ym = S.ui.budgetMonth, cid = el.dataset.budget;
+    if (monthBudget(cid, ym) === v && (el.value.trim() !== '' || !hasMonthOverride(cid, ym))) return;
+    const all = { ...(S.settings.budgetsMonth || {}) }, m = { ...(all[ym] || {}) };
+    if (el.value.trim() === '') delete m[cid]; else m[cid] = v;
+    if (Object.keys(m).length) all[ym] = m; else delete all[ym];
+    if (await saveSettings({ budgetsMonth: all })) toast(el.value.trim() === '' ? 'Budget del mese rimosso: uso il predefinito' : 'Budget di ' + ymLabel(ym).toLowerCase() + ' aggiornato');
   }
   else if (el.id === 'restore-file' && el.files[0]) { restore(el.files[0]); el.value = ''; }
   else if (el.id === 'imp-file' && el.files[0]) impLoadFile(el.files[0]);
