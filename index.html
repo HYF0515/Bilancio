@@ -952,6 +952,14 @@ function monthBudget(id, ym) {
   if (bm && bm[id] != null) return +bm[id] || 0;
   return +(S.settings.budgets || {})[id] || 0;
 }
+// Budget "storico": solo se per quel mese è stato registrato un budget specifico (non il predefinito di oggi)
+const pastMonthBudget = (id, ym) => hasMonthOverride(id, ym) ? monthBudget(id, ym) : null;
+function pastYearBudget(id, year) {
+  let t = 0, any = false;
+  for (let m = 1; m <= 12; m++) { const v = pastMonthBudget(id, year + '-' + pad(m)); if (v != null) { any = true; t += v; } }
+  return any ? t : null;
+}
+const prevHint = (label, v) => `<small class="muted" style="display:block;font-size:.75rem;margin-top:3px;white-space:nowrap">${label}: ${v == null ? '—' : money0(v)}</small>`;
 const hasMonthOverride = (id, ym) => { const bm = (S.settings.budgetsMonth || {})[ym]; return !!(bm && bm[id] != null); };
 // Budget annuale: quello dedicato se c'è, altrimenti la somma dei 12 budget mensili.
 function annualBudget(id, year = S.ui.budgetYear) {
@@ -974,7 +982,7 @@ function budgetYearView() {
     const sub = own ? `<small class="muted" style="display:block;font-size:.75rem">Budget annuale dedicato${+mb[c.id] ? ` · mensile ${money0(+mb[c.id])}` : ''}</small>` : (sumM ? `<small class="muted" style="display:block;font-size:.75rem">${varies ? 'Somma dei budget dei 12 mesi' : 'Da budget mensile: 12 × ' + money0(sumM / 12)}</small>` : '');
     return `<tr><td><div class="catname"><i class="dot" style="background:${esc(c.color)}"></i><span>${esc(c.name)}</span></div>${sub}
       <div class="bar ${cls}" style="margin-top:8px"><i style="width:${Math.min(100, r * 100).toFixed(1)}%"></i></div></td>
-      <td class="r" style="width:160px"><input class="input num" style="text-align:right" id="by-${esc(c.id)}" data-budget-year="${esc(c.id)}" inputmode="decimal" placeholder="${sumM ? String(Math.round(sumM * 100) / 100).replace('.', ',') : '—'}" value="${own ? String(+yb[c.id]).replace('.', ',') : ''}" aria-label="Budget annuale ${esc(c.name)}"></td>
+      <td class="r" style="width:160px"><input class="input num" style="text-align:right" id="by-${esc(c.id)}" data-budget-year="${esc(c.id)}" inputmode="decimal" placeholder="${sumM ? String(Math.round(sumM * 100) / 100).replace('.', ',') : '—'}" value="${own ? String(+yb[c.id]).replace('.', ',') : ''}" aria-label="Budget annuale ${esc(c.name)}">${prevHint(String(+year - 1), pastYearBudget(c.id, String(+year - 1)))}</td>
       <td class="r num">${money0(s)}${b ? `<br><span class="muted" style="font-size:.78rem">${pct(r)}</span>` : ''}</td>
       <td class="r num ${b && b - s < 0 ? 'neg' : ''}">${b ? money0(b - s) : '<span class="muted">—</span>'}</td></tr>`;
   }).join('');
@@ -1004,7 +1012,7 @@ VIEWS.budget = () => {
     const cls = b && r > 1 ? 'over' : b && r >= .8 ? 'near' : '';
     return `<tr><td><div class="catname"><i class="dot" style="background:${esc(c.color)}"></i><span>${esc(c.name)}</span></div>${hasMonthOverride(c.id, ym) && (+defB[c.id] || 0) !== b ? `<small class="muted" style="display:block;font-size:.75rem">Solo per ${ymLabel(ym).toLowerCase()} · predefinito ${money0(+defB[c.id] || 0)}</small>` : ''}${+(S.settings.budgetsYear || {})[c.id] ? `<small class="muted" style="display:block;font-size:.75rem">Budget annuale ${money0(+S.settings.budgetsYear[c.id])}</small>` : ''}
       <div class="bar ${cls}" style="margin-top:8px"><i style="width:${Math.min(100, r * 100).toFixed(1)}%"></i></div></td>
-      <td class="r" style="width:150px"><input class="input num" style="text-align:right" id="b-${esc(c.id)}" data-budget="${esc(c.id)}" inputmode="decimal" placeholder="—" value="${b ? String(b).replace('.', ',') : ''}" aria-label="Budget ${esc(c.name)}"></td>
+      <td class="r" style="width:150px"><input class="input num" style="text-align:right" id="b-${esc(c.id)}" data-budget="${esc(c.id)}" inputmode="decimal" placeholder="—" value="${b ? String(b).replace('.', ',') : ''}" aria-label="Budget ${esc(c.name)}">${prevHint(ymShort(ym) + ' ' + (+ym.slice(0, 4) - 1), pastMonthBudget(c.id, (+ym.slice(0, 4) - 1) + ym.slice(4)))}</td>
       <td class="r num">${money(s)}</td>
       <td class="r num ${b && b - s < 0 ? 'neg' : ''}">${b ? money(b - s) : '<span class="muted">—</span>'}</td></tr>`;
   }).join('');
