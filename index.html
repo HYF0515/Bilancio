@@ -403,7 +403,7 @@ html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
 <script>
 (() => {
 "use strict";
-const APP_VERSION = '57';
+const APP_VERSION = '58';
 /* ---------- utilità ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -942,7 +942,7 @@ VIEWS.mensile = () => {
   ${heroCard('Risparmio del mese', money0(st.net), [['Entrate', 'in', money0(st.inc), 'pos'], ['Uscite', 'out', money0(st.exp), 'neg']], '', st.net < 0 ? 'neg' : '')}
   ${monthBudgetCard(ym, st)}
   <div class="grid g-2">
-    <section class="panel"><div class="panel-h"><h2>Spese per categoria</h2><a class="btn small ghost" href="#budget">Budget →</a></div>
+    <section class="panel"><div class="panel-h"><h2>Spese per categoria</h2></div>
       ${catBars(st.byCat, `Nessuna spesa registrata in ${ymLabel(ym).toLowerCase()}.`)}
     </section>
     <section class="panel"><div class="panel-h"><h2>Ultimi movimenti</h2><a class="btn small ghost" href="#movimenti">Tutti →</a></div>${txList(recent, { group: false })}</section>
