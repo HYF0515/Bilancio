@@ -2,7 +2,7 @@
 <html lang="it">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Bubudex</title>
 <meta name="theme-color" content="#F3F4F7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0E1117" media="(prefers-color-scheme: dark)">
@@ -244,6 +244,27 @@ body.locked .app{grid-template-columns:minmax(0,1fr)}
   .hide-m{display:none}
   .modal{padding-top:16px}
 }
+
+/* Intestazioni con selettore di mese/anno: titolo e selettore sulla stessa riga anche su telefono */
+.lbl-short{display:none}
+.budget-mode-row{display:flex;justify-content:flex-end}
+.budget-mode-row .seg{min-width:220px}
+.head.with-nav,.panel-h.with-nav{flex-wrap:nowrap;align-items:center}
+.head.with-nav>div:first-child,.panel-h.with-nav>div:first-child{min-width:0;flex:1 1 auto}
+.head.with-nav h1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.head.with-nav .head-actions,.panel-h.with-nav>.month-nav{flex:none;flex-wrap:nowrap}
+html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
+@media (max-width:760px){
+  .budget-mode-row{justify-content:stretch}.budget-mode-row .seg{width:100%}
+  .head.with-nav h1{display:none}
+  .head.with-nav .lbl-long{display:none} .head.with-nav .lbl-short{display:inline}
+  .head.with-nav .eyebrow{font-size:.95rem;color:var(--fg);letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .month-nav .icon-btn{width:28px;height:32px}
+  .nav-pick{min-width:0;padding:6px 15px 6px 2px;font-size:.92rem}
+  .nav-pick.year{min-width:0}
+  .input,select.input,textarea.input{font-size:16px}
+}
+@media (max-width:370px){ .head.with-nav .eyebrow{font-size:.8rem;letter-spacing:.02em} .nav-pick{font-size:.85rem} .month-nav .icon-btn{width:24px} }
 @media (prefers-reduced-motion: no-preference){ .bar i{transition:width .4s ease} }
 </style>
 
@@ -266,7 +287,7 @@ body.locked .app{grid-template-columns:minmax(0,1fr)}
 <script>
 (() => {
 "use strict";
-const APP_VERSION = '36';
+const APP_VERSION = '37';
 /* ---------- utilità ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -694,7 +715,7 @@ VIEWS.mensile = () => {
   const alerts = Object.entries(budgets).filter(([, b]) => +b > 0).map(([cid, b]) => ({ c: cat(cid), b: +b, s: st.byCat[cid] || 0 })).filter(x => x.c && x.s / x.b >= .8).sort((a, b) => b.s / b.b - a.s / a.b);
   const recent = sortTx(S.transactions).slice(0, 7);
   return `
-  <div class="head"><div><div class="eyebrow">Situazione mensile</div><h1>${ymLabel(ym)}</h1></div>
+  <div class="head with-nav"><div><div class="eyebrow"><span class="lbl-long">Situazione mensile</span><span class="lbl-short">Mensile</span></div><h1>${ymLabel(ym)}</h1></div>
     <div class="head-actions">${monthNav('month')}<button class="btn primary hide-m" data-act="new-tx">+ Movimento</button></div></div>
   <section class="kpis">
     <div class="kpi"><span class="eyebrow">Patrimonio netto</span><span class="v num">${money0(nw)}</span><span class="s">Liquidità ${money0(liquid)} · Investimenti ${money0(inv)}</span></div>
@@ -721,7 +742,7 @@ VIEWS.mensile = () => {
 VIEWS.panoramica = () => {
   const y = S.ui.year;
   return `
-  <div class="head"><div><div class="eyebrow">Panoramica</div><h1>Anno ${y}</h1></div>
+  <div class="head with-nav"><div><div class="eyebrow">Panoramica</div><h1>Anno ${y}</h1></div>
     <div class="head-actions"><div class="month-nav"><button class="icon-btn" data-act="year" data-d="-1" aria-label="Anno precedente">‹</button>${yearPick('year')}<button class="icon-btn" data-act="year" data-d="1" aria-label="Anno successivo">›</button></div><button class="btn primary hide-m" data-act="new-tx">+ Movimento</button></div></div>
   ${(() => { const yt = yearTotals(y), sameP = y === todayISO().slice(0, 4), prev = yearTotals(String(+y - 1), sameP ? todayISO().slice(5) : ''); return `<section class="kpis">
     <div class="kpi"><span class="eyebrow">Entrate ${y}</span><span class="v num pos">${money0(yt.inc)}</span><span class="s">${prev.inc ? `${yt.inc >= prev.inc ? '▲' : '▼'} ${pct(Math.abs(yt.inc - prev.inc) / prev.inc)} vs ${sameP ? 'stesso periodo ' : ''}${+y - 1}` : 'Totale dell\'anno'}</span></div>
@@ -787,7 +808,7 @@ VIEWS.proprieta = () => {
   const value = +pr.currentValue || 0;
   const yearNav = `<div class="month-nav"><button class="icon-btn" data-act="prop-year" data-d="-1" aria-label="Anno precedente">‹</button>${yearPick('propYear')}<button class="icon-btn" data-act="prop-year" data-d="1" aria-label="Anno successivo">›</button></div>`;
   const paidCap = ms ? ms.principal - ms.res : 0;
-  const summary = `<section class="panel"><div class="panel-h"><div><h2>Resoconto</h2><span class="muted" style="font-size:.82rem">Mutuo dall'inizio · spese dell'anno ${year}</span></div>${yearNav}</div>
+  const summary = `<section class="panel"><div class="panel-h with-nav"><div><h2>Resoconto</h2><span class="muted" style="font-size:.82rem">Mutuo dall'inizio · spese dell'anno ${year}</span></div>${yearNav}</div>
     <div class="kpis">
       <div class="kpi"><span class="eyebrow">Mutuo pagato</span><span class="v num pos">${ms ? money0(paidCap) : allMortPaid ? money0(allMortPaid) : '—'}</span><span class="s">${ms ? `${pct(ms.pctRepaid)} del capitale · rate versate ${money0(ms.paid)}` : allMortPaid ? 'Rate versate finora' : 'Nessun mutuo inserito'}</span></div>
       <div class="kpi"><span class="eyebrow">Rimane da pagare</span><span class="v num">${ms ? money0(ms.res) : '—'}</span><span class="s">${ms ? (ms.monthsLeft ? `${ms.monthsLeft} rate · fine ${ymShort(ms.endYm)} ${ms.endYm.slice(0, 4)}` : ms.res <= 0.005 ? 'Mutuo estinto' : 'Capitale residuo') : 'Inserisci il mutuo in “Modifica dati”'}</span></div>
@@ -946,7 +967,7 @@ VIEWS.movimenti = () => {
   const accOpts = activeAccounts().map(a => `<option value="${esc(a.id)}" ${S.ui.fAcc === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('');
   const catOpts = ['spesa', 'entrata'].map(k => `<optgroup label="${k === 'spesa' ? 'Spese' : 'Entrate'}">${catsOf(k).map(c => `<option value="${esc(c.id)}" ${S.ui.fCat === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</optgroup>`).join('');
   return `
-  <div class="head"><div><div class="eyebrow">Movimenti</div><h1>${ymLabel(S.ui.month)}</h1></div>
+  <div class="head with-nav"><div><div class="eyebrow">Movimenti</div><h1>${ymLabel(S.ui.month)}</h1></div>
     <div class="head-actions">${monthNav('month')}<button class="btn primary hide-m" data-act="new-tx">+ Movimento</button></div></div>
   <section class="panel">
     <div class="filters">
@@ -1019,7 +1040,8 @@ function budgetYearView() {
       <td class="r num ${b && b - s < 0 ? 'neg' : ''}">${b ? money0(b - s) : '<span class="muted">—</span>'}</td></tr>`;
   }).join('');
   return `
-  <div class="head"><div><div class="eyebrow">Budget annuale</div><h1>Anno ${year}</h1></div><div class="head-actions">${budgetModeSeg()}<div class="month-nav"><button class="icon-btn" data-act="ykey" data-key="budgetYear" data-d="-1" aria-label="Anno precedente">‹</button>${yearPick('budgetYear')}<button class="icon-btn" data-act="ykey" data-key="budgetYear" data-d="1" aria-label="Anno successivo">›</button></div></div></div>
+  <div class="budget-mode-row">${budgetModeSeg()}</div>
+  <div class="head with-nav"><div><div class="eyebrow"><span class="lbl-long">Budget annuale</span><span class="lbl-short">Budget</span></div><h1>Anno ${year}</h1></div><div class="head-actions"><div class="month-nav"><button class="icon-btn" data-act="ykey" data-key="budgetYear" data-d="-1" aria-label="Anno precedente">‹</button>${yearPick('budgetYear')}<button class="icon-btn" data-act="ykey" data-key="budgetYear" data-d="1" aria-label="Anno successivo">›</button></div></div></div>
   ${(() => { const yt = yearTotals(year); return `<section class="kpis k5">
     <div class="kpi"><span class="eyebrow">Entrate ${year}</span><span class="v num pos">${money0(yt.inc)}</span><span class="s">${totB ? (yt.inc - totB >= 0 ? 'Margine dopo il budget ' + money0(yt.inc - totB) : 'Il budget supera le entrate di ' + money0(totB - yt.inc)) : 'Totale entrate dell\'anno'}</span></div>`; })()}
     <div class="kpi"><span class="eyebrow">Budget annuale</span><span class="v num">${money0(totB)}</span><span class="s">${money0(totB / 12)} al mese in media</span></div>
@@ -1049,7 +1071,8 @@ VIEWS.budget = () => {
       <td class="r num ${b && b - s < 0 ? 'neg' : ''}">${b ? money(b - s) : '<span class="muted">—</span>'}</td></tr>`;
   }).join('');
   return `
-  <div class="head"><div><div class="eyebrow">Budget mensile</div><h1>${ymLabel(ym)}</h1></div><div class="head-actions">${budgetModeSeg()}${monthNav('budgetMonth')}</div></div>
+  <div class="budget-mode-row">${budgetModeSeg()}</div>
+  <div class="head with-nav"><div><div class="eyebrow"><span class="lbl-long">Budget mensile</span><span class="lbl-short">Budget</span></div><h1>${ymLabel(ym)}</h1></div><div class="head-actions">${monthNav('budgetMonth')}</div></div>
   <section class="kpis k5">
     <div class="kpi"><span class="eyebrow">Entrate del mese</span><span class="v num pos">${money0(st.inc)}</span><span class="s">${totB ? (st.inc - totB >= 0 ? 'Margine dopo il budget ' + money0(st.inc - totB) : 'Il budget supera le entrate di ' + money0(totB - st.inc)) : 'Totale entrate registrate'}</span></div>
     <div class="kpi"><span class="eyebrow">Budget totale</span><span class="v num">${money0(totB)}</span><span class="s">Budget di ${ymLabel(ym).toLowerCase()}</span></div>
@@ -2101,6 +2124,8 @@ async function checkUpdate(btn) {
   try { if (swReg) await swReg.update(); } catch (e) {}
   setTimeout(() => location.reload(), 600);
 }
+document.addEventListener('gesturestart', e => e.preventDefault(), { passive: false });
+document.addEventListener('dblclick', e => { if (innerWidth <= 760) e.preventDefault(); }, { passive: false });
 boot();
 })();
 </script>
