@@ -1094,7 +1094,7 @@ VIEWS.impostazioni = () => {
     <section class="panel"><div class="panel-h"><h2>Conti</h2><button class="btn small" data-act="new-acc">+ Conto</button></div>
       ${S.accounts.length ? [...S.accounts].sort((a, b) => !!a.archived - !!b.archived || a.name.localeCompare(b.name)).map(a => `<div class="list-row"><div class="l"><i class="dot" style="background:${esc(accColor(a))}"></i><span>${esc(a.name)}</span>${a.archived ? '<span class="pill">Archiviato</span>' : ''}</div><button class="btn small ghost" data-act="edit-acc" data-id="${esc(a.id)}">Modifica</button></div>`).join('') : '<p class="muted">Nessun conto.</p>'}
     </section>
-    <section class="panel"><div class="panel-h"><h2>Categorie</h2><button class="btn small" data-act="new-cat">+ Categoria</button></div>
+    <section class="panel"><div class="panel-h"><h2>Categorie</h2><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn small" data-act="clean-cats">Rimuovi categorie senza movimenti</button><button class="btn small" data-act="new-cat">+ Categoria</button></div></div>
       ${['spesa', 'entrata'].map(k => `<h3 style="margin:6px 0">${k === 'spesa' ? 'Spese' : 'Entrate'}</h3><div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">${catsOf(k).map(c => `<button class="pill" style="border:0;cursor:pointer" data-act="edit-cat" data-id="${esc(c.id)}"><i class="dot" style="background:${esc(c.color)}"></i>${esc(c.name)}</button>`).join('') || '<span class="muted">Nessuna</span>'}</div>`).join('')}
     </section>
     <section class="panel"><div class="panel-h"><h2>Regole di categorizzazione</h2><button class="btn small" data-act="new-rule">+ Regola</button></div>
@@ -1340,6 +1340,39 @@ function accForm(a) {
     onDelete: isNew ? null : async () => {
       if (used) { toast('Questo conto ha movimenti: archivialo invece di eliminarlo.', true); return false; }
       const ok = await del('accounts', a.id); ok && toast('Conto eliminato'); return ok;
+    }
+  });
+}
+// Categorie non usate da nessun movimento, ricorrenza o mutuo: si possono eliminare in blocco.
+function unusedCategories() {
+  const used = new Set();
+  S.transactions.forEach(t => t.categoryId && used.add(t.categoryId));
+  S.recurring.forEach(r => r.categoryId && used.add(r.categoryId));
+  S.properties.forEach(p => p.mortgage && p.mortgage.categoryId && used.add(p.mortgage.categoryId));
+  return S.categories.filter(c => !used.has(c.id)).sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name, 'it'));
+}
+function cleanCatsForm() {
+  const list = unusedCategories();
+  if (!list.length) { toast('Tutte le categorie hanno almeno un movimento.'); return; }
+  const usedNames = new Set(S.categories.filter(c => !list.includes(c)).map(c => c.kind + '|' + c.name.trim().toLowerCase()));
+  openForm({
+    title: 'Categorie senza movimenti',
+    intro: `<p class="muted" style="margin:0;font-size:.88rem">Queste ${list.length} categorie non hanno nessun movimento, ricorrenza o mutuo collegato. Quelle spuntate verranno eliminate: togli la spunta a quelle che vuoi tenere per il futuro. Le categorie marcate “doppione” hanno lo stesso nome di un'altra categoria che usi.</p>`,
+    fields: [{ id: 'del', label: 'Da eliminare', type: 'checks', value: list.map(c => c.id), options: list.map(c => ({ v: c.id, l: `${c.name} · ${c.kind === 'spesa' ? 'spesa' : 'entrata'}${usedNames.has(c.kind + '|' + c.name.trim().toLowerCase()) ? ' · doppione' : ''}` })) }],
+    submitLabel: 'Elimina le categorie spuntate',
+    validate: v => !(v.del || []).length ? 'Non hai spuntato nessuna categoria.' : '',
+    async onSubmit(v) {
+      const ids = new Set(v.del || []);
+      const strip = o => o ? Object.fromEntries(Object.entries(o).filter(([k]) => !ids.has(k))) : o;
+      const st = S.settings, patch = {};
+      if (st.budgets) patch.budgets = strip(st.budgets);
+      if (st.budgetsYear) patch.budgetsYear = strip(st.budgetsYear);
+      if (st.budgetsMonth) patch.budgetsMonth = Object.fromEntries(Object.entries(st.budgetsMonth).map(([ym, b]) => [ym, strip(b)]));
+      if (st.rules) patch.rules = st.rules.filter(r => !ids.has(r.c));
+      for (const id of ids) await del('categories', id);
+      if (Object.keys(patch).length) await saveSettings(patch);
+      toast(`Eliminate ${ids.size} categorie`);
+      return true;
     }
   });
 }
@@ -1733,6 +1766,7 @@ document.addEventListener('click', e => {
   if (a === 'new-acc') return accForm();
   if (a === 'edit-acc') return accForm(acc(id));
   if (a === 'new-cat') return catForm();
+  if (a === 'clean-cats') return cleanCatsForm();
   if (a === 'edit-cat') return catForm(cat(id));
   if (a === 'new-hold') return holdForm();
   if (a === 'edit-hold') return holdForm(byId('holdings', id));
