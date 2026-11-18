@@ -108,7 +108,7 @@ a.btn{color:inherit;text-decoration:none}
 .seg{display:flex;background:var(--surface-2);border-radius:9px;padding:3px;gap:2px}
 .seg button{flex:1;border:0;background:transparent;padding:7px 8px;border-radius:7px;cursor:pointer;font-weight:500;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:var(--surface);color:var(--fg);box-shadow:var(--shadow)}
-.filters{display:grid;grid-template-columns:2fr repeat(3,minmax(0,1fr));gap:10px}
+.filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
 
 .pill{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:999px;font-size:.78rem;font-weight:600;background:var(--surface-2);color:var(--muted);white-space:nowrap}
 .pill.pos{background:var(--pos-soft);color:var(--pos)} .pill.neg{background:var(--neg-soft);color:var(--neg)} .pill.warn{background:var(--warn-soft);color:var(--warn)} .pill.acc{background:var(--accent-soft);color:var(--accent)}
@@ -182,6 +182,10 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--surface-2)}
 .toast.err{background:var(--neg);color:#fff}
 .fab{display:none}
 .more-btn{display:none!important}
+.prop-tabs{display:flex;gap:6px;flex-wrap:wrap}
+.prop-tab{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:7px 14px;cursor:pointer;font-weight:500;color:var(--muted)}
+.prop-tab[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.prop-tab.add{border-style:dashed}
 .more-link{display:flex;align-items:center;gap:12px;padding:12px 10px;border-radius:9px;color:var(--fg);text-decoration:none;font-weight:500}
 .more-link svg{width:20px;height:20px;color:var(--muted)}
 .more-link:hover,.more-link[aria-current="page"]{background:var(--accent-soft);color:var(--accent)}
@@ -296,7 +300,7 @@ function nextDate(iso, f) {
 /* ---------- stato ---------- */
 const COLS = ['accounts', 'categories', 'transactions', 'holdings', 'goals', 'recurring', 'snapshots', 'properties'];
 const S = { sb: null, user: null, synced: false, status: 'loading', settings: {},
-  ui: { propYear: todayISO().slice(0, 4), year: todayISO().slice(0, 4), month: ymOf(todayISO()), q: '', fAcc: '', fCat: '', fKind: '', budgetMonth: ymOf(todayISO()) } };
+  ui: { propId: '', fProp: '', propYear: todayISO().slice(0, 4), year: todayISO().slice(0, 4), month: ymOf(todayISO()), q: '', fAcc: '', fCat: '', fKind: '', budgetMonth: ymOf(todayISO()) } };
 COLS.forEach(c => S[c] = []);
 const byId = (col, id) => S[col].find(x => x.id === id);
 const cat = id => byId('categories', id);
@@ -501,7 +505,7 @@ function txRow(t) {
   const c = cat(t.categoryId), a = acc(t.accountId);
   let title, sub, cls, sign;
   if (t.kind === 'giroconto') { title = t.note || 'Giroconto'; sub = `${a?.name || '?'} → ${acc(t.toAccountId)?.name || '?'}`; cls = 'muted'; sign = ''; }
-  else { title = t.note || c?.name || 'Movimento'; sub = [c?.name, a?.name].filter(Boolean).join(' · '); cls = t.kind === 'entrata' ? 'pos' : ''; sign = t.kind === 'entrata' ? '+' : '−'; }
+  else { title = t.note || c?.name || 'Movimento'; sub = [c?.name, propById(t.propertyId)?.name, a?.name].filter(Boolean).join(' · '); cls = t.kind === 'entrata' ? 'pos' : ''; sign = t.kind === 'entrata' ? '+' : '−'; }
   return `<div class="tx" data-act="edit-tx" data-id="${esc(t.id)}" tabindex="0" role="button">${catBadge(c, t.kind)}<div class="tx-main"><b>${esc(title)}</b><small>${esc(sub)}</small></div><div class="tx-amt num ${cls}">${sign}${money(+t.amount)}</div></div>`;
 }
 function txList(list, { group = true } = {}) {
@@ -565,10 +569,12 @@ VIEWS.panoramica = () => {
   ${yearBudgetPanel(y)}`;
 };
 
-/* ---------- proprietà (Marzabotto 14) ---------- */
-const PROP_ID = 'marzabotto14';
-const prop = () => S.properties.find(p => p.id === PROP_ID) || null;
-const propName = () => prop()?.name || 'Marzabotto 14';
+/* ---------- proprietà ---------- */
+const propsSorted = () => [...S.properties].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0) || String(a.name).localeCompare(String(b.name), 'it'));
+const propById = id => S.properties.find(p => p.id === id) || null;
+const curProp = () => propById(S.ui.propId) || propsSorted()[0] || null;
+const propOptions = () => propsSorted().map(p => ({ v: p.id, l: p.name }));
+const propName = () => curProp()?.name || 'Proprietà';
 const guessCat = re => S.categories.find(c => c.kind === 'spesa' && re.test(c.name))?.id || '';
 function annuity(P, rYear, years) { const r = rYear / 100 / 12, n = Math.round(years * 12); if (!(P > 0) || !(n > 0)) return 0; return r ? P * r / (1 - Math.pow(1 + r, -n)) : P / n; }
 function mortgageStats(pr) {
@@ -578,10 +584,9 @@ function mortgageStats(pr) {
   const refDate = m.refDate || m.startDate || '0000-01-01';
   const r = (+m.rate || 0) / 100 / 12;
   let res = +m.residual > 0 ? +m.residual : principal;
-  const startRes = res;
   const byMonth = {};
   for (const t of S.transactions) {
-    if (t.kind !== 'spesa' || !m.categoryId || t.categoryId !== m.categoryId || t.date < refDate) continue;
+    if (t.kind !== 'spesa' || t.propertyId !== pr.id || !m.categoryId || t.categoryId !== m.categoryId || t.date < refDate) continue;
     byMonth[ymOf(t.date)] = (byMonth[ymOf(t.date)] || 0) + (+t.amount || 0);
   }
   const rows = []; let paid = 0, interest = 0, capital = 0;
@@ -599,43 +604,40 @@ function mortgageStats(pr) {
     if (Number.isFinite(k)) { monthsLeft = k; toPay = tot; }
   }
   const lastYm = rows.length ? rows[rows.length - 1].ym : ymOf(todayISO());
-  return { principal, startRes, res, paid, interest, capital, rows, pay, monthsLeft, toPay, endYm: monthsLeft != null ? addMonths(lastYm, monthsLeft) : null, pctRepaid: 1 - res / principal, hasRate: !!r, categoryId: m.categoryId };
+  return { principal, res, paid, interest, capital, rows, pay, monthsLeft, toPay, endYm: monthsLeft != null ? addMonths(lastYm, monthsLeft) : null, pctRepaid: 1 - res / principal, hasRate: !!r, categoryId: m.categoryId };
 }
 VIEWS.proprieta = () => {
-  const saved = prop();
-  const pr = saved || { name: 'Marzabotto 14', mortgage: { categoryId: guessCat(/mutuo/i) }, expenseCats: S.categories.filter(c => c.kind === 'spesa' && /condomin|utenz|bollett|assicuraz.*casa|wi-?fi|internet|manutenz|imu|tari|rifiuti/i.test(c.name)).map(c => c.id) };
-  const name = pr.name || 'Marzabotto 14';
-  const ms = mortgageStats(pr), year = S.ui.propYear;
-  const mcat = pr.mortgage?.categoryId || '', cats = (pr.expenseCats || []).filter(id => id !== mcat);
-  const ptx = sortTx(S.transactions.filter(t => t.kind === 'spesa' && String(t.date).startsWith(year) && (cats.includes(t.categoryId) || (mcat && t.categoryId === mcat))));
-  const mort = ptx.filter(t => t.categoryId === mcat).reduce((s, t) => s + +t.amount, 0);
-  const byCat = {}; ptx.filter(t => t.categoryId !== mcat).forEach(t => byCat[t.categoryId] = (byCat[t.categoryId] || 0) + +t.amount);
-  const exp = sumObj(byCat), tot = exp + mort;
+  const list = propsSorted(), pr = curProp();
+  if (!pr) return `<div class="head"><div><div class="eyebrow">Proprietà</div><h1>Le tue proprietà</h1></div></div>
+    <section class="panel empty"><h2>Aggiungi la tua prima proprietà</h2><p>Per esempio la casa di Milano o quella di Beausoleil. Quando registri una spesa (luce, condominio, rata del mutuo…) potrai scegliere a quale proprietà si riferisce, e qui vedrai mutuo pagato, debito residuo e spese di ciascuna.</p><button class="btn primary" data-act="new-prop">+ Aggiungi proprietà</button></section>`;
+  const tabs = `<div class="prop-tabs" role="tablist" aria-label="Proprietà">${list.map(p => `<button class="prop-tab" role="tab" aria-selected="${p.id === pr.id}" data-act="prop-sel" data-id="${esc(p.id)}">${esc(p.name)}</button>`).join('')}<button class="prop-tab add" data-act="new-prop">+ Aggiungi</button></div>`;
+  const ms = mortgageStats(pr), year = S.ui.propYear, mcat = pr.mortgage?.categoryId || '';
+  const all = S.transactions.filter(t => t.propertyId === pr.id && t.kind !== 'giroconto');
+  const ptx = sortTx(all.filter(t => String(t.date).startsWith(year)));
+  const outs = ptx.filter(t => t.kind === 'spesa'), ins = ptx.filter(t => t.kind === 'entrata');
+  const mort = outs.filter(t => mcat && t.categoryId === mcat).reduce((s, t) => s + +t.amount, 0);
+  const byCat = {}; outs.filter(t => !(mcat && t.categoryId === mcat)).forEach(t => byCat[t.categoryId] = (byCat[t.categoryId] || 0) + +t.amount);
+  const exp = sumObj(byCat), tot = exp + mort, inc = ins.reduce((s, t) => s + +t.amount, 0);
   const cy = todayISO().slice(0, 4), months = year < cy ? 12 : year > cy ? 0 : +todayISO().slice(5, 7);
-  const allMortPaid = mcat ? S.transactions.filter(t => t.kind === 'spesa' && t.categoryId === mcat).reduce((s, t) => s + +t.amount, 0) : 0;
+  const allMortPaid = mcat ? all.filter(t => t.kind === 'spesa' && t.categoryId === mcat).reduce((s, t) => s + +t.amount, 0) : 0;
   const value = +pr.currentValue || 0;
   const yearNav = `<div class="month-nav"><button class="icon-btn" data-act="prop-year" data-d="-1" aria-label="Anno precedente">‹</button><span>${year}</span><button class="icon-btn" data-act="prop-year" data-d="1" aria-label="Anno successivo">›</button></div>`;
-
-  // Resoconto in apertura
   const paidCap = ms ? ms.principal - ms.res : 0;
   const summary = `<section class="panel"><div class="panel-h"><div><h2>Resoconto</h2><span class="muted" style="font-size:.82rem">Mutuo dall'inizio · spese dell'anno ${year}</span></div>${yearNav}</div>
     <div class="kpis">
-      <div class="kpi"><span class="eyebrow">Mutuo pagato</span><span class="v num pos">${ms ? money0(paidCap) : money0(allMortPaid)}</span><span class="s">${ms ? `${pct(ms.pctRepaid)} del capitale · rate versate ${money0(ms.paid)}` : 'Rate versate finora'}</span></div>
-      <div class="kpi"><span class="eyebrow">Rimane da pagare</span><span class="v num">${ms ? money0(ms.res) : '—'}</span><span class="s">${ms ? (ms.monthsLeft ? `${ms.monthsLeft} rate · fine ${ymShort(ms.endYm)} ${ms.endYm.slice(0, 4)}` : ms.res <= 0.005 ? 'Mutuo estinto' : 'Capitale residuo') : 'Inserisci il totale del mutuo'}</span></div>
-      <div class="kpi"><span class="eyebrow">Spese casa ${year}</span><span class="v num">${money0(exp)}</span><span class="s">Escluso il mutuo${months ? ` · ${money0(exp / months)}/mese` : ''}</span></div>
-      <div class="kpi"><span class="eyebrow">Totale casa ${year}</span><span class="v num">${money0(tot)}</span><span class="s">Rate ${money0(mort)} + spese ${money0(exp)}</span></div>
+      <div class="kpi"><span class="eyebrow">Mutuo pagato</span><span class="v num pos">${ms ? money0(paidCap) : allMortPaid ? money0(allMortPaid) : '—'}</span><span class="s">${ms ? `${pct(ms.pctRepaid)} del capitale · rate versate ${money0(ms.paid)}` : allMortPaid ? 'Rate versate finora' : 'Nessun mutuo inserito'}</span></div>
+      <div class="kpi"><span class="eyebrow">Rimane da pagare</span><span class="v num">${ms ? money0(ms.res) : '—'}</span><span class="s">${ms ? (ms.monthsLeft ? `${ms.monthsLeft} rate · fine ${ymShort(ms.endYm)} ${ms.endYm.slice(0, 4)}` : ms.res <= 0.005 ? 'Mutuo estinto' : 'Capitale residuo') : 'Inserisci il mutuo in “Modifica dati”'}</span></div>
+      <div class="kpi"><span class="eyebrow">Spese ${year}</span><span class="v num">${money0(exp)}</span><span class="s">Escluso il mutuo${months ? ` · ${money0(exp / months)}/mese` : ''}</span></div>
+      <div class="kpi"><span class="eyebrow">Totale ${year}</span><span class="v num">${money0(tot)}</span><span class="s">Rate ${money0(mort)} + spese ${money0(exp)}${inc ? ` · entrate +${money0(inc)}` : ''}</span></div>
     </div>
     ${ms ? `<div style="margin-top:14px;display:flex;flex-direction:column;gap:6px"><div class="bar" style="height:12px"><i style="width:${Math.min(100, ms.pctRepaid * 100).toFixed(1)}%;background:var(--pos)"></i></div><div style="display:flex;justify-content:space-between;font-size:.8rem" class="muted"><span>Pagato ${money0(paidCap)}</span><span>Totale mutuo ${money0(ms.principal)}</span></div></div>` : ''}
   </section>`;
-
-  const actions = `<button class="btn" data-act="edit-prop">${saved ? 'Modifica dati' : 'Inserisci i dati'}</button><button class="btn" data-act="prop-pay">+ Rata mutuo</button><button class="btn primary" data-act="prop-exp">+ Spesa casa</button>`;
-  const head = `<div class="head"><div><div class="eyebrow">Proprietà</div><h1>${esc(name)}</h1>${pr.address ? `<span class="muted">${esc(pr.address)}</span>` : ''}</div><div class="head-actions">${actions}</div></div>`;
-  const notice = saved ? '' : `<div class="banner info"><div><b>Completa i dati del mutuo.</b> <span class="muted">Inserisci il totale del prestito, il tasso e la rata per vedere quanto ti rimane da pagare e quando finirai.</span></div><button class="btn small primary" data-act="edit-prop">Inserisci i dati</button></div>`;
-
+  const actions = `<button class="btn" data-act="edit-prop" data-id="${esc(pr.id)}">Modifica dati</button>${ms ? `<button class="btn" data-act="prop-pay">+ Rata mutuo</button>` : ''}<button class="btn primary" data-act="prop-exp">+ Spesa</button>`;
+  const head = `${tabs}<div class="head"><div><div class="eyebrow">Proprietà</div><h1>${esc(pr.name)}</h1>${pr.address ? `<span class="muted">${esc(pr.address)}</span>` : ''}</div><div class="head-actions">${actions}</div></div>`;
   let mortHTML = '';
   if (ms) {
     const last = ms.rows.slice(-6).reverse();
-    mortHTML = `<section class="panel"><div class="panel-h"><div><h2>Dettaglio mutuo${pr.mortgage.bank ? ' · ' + esc(pr.mortgage.bank) : ''}</h2><span class="muted" style="font-size:.82rem">Le rate registrate nella categoria “${esc(cat(mcat)?.name || '—')}” aggiornano il debito residuo</span></div></div>
+    mortHTML = `<section class="panel"><div class="panel-h"><div><h2>Dettaglio mutuo${pr.mortgage.bank ? ' · ' + esc(pr.mortgage.bank) : ''}</h2><span class="muted" style="font-size:.82rem">Contano le spese con categoria “${esc(cat(mcat)?.name || '—')}” e proprietà “${esc(pr.name)}”</span></div></div>
       <div class="kpis" style="margin-bottom:14px">
         <div class="kpi"><span class="eyebrow">Totale mutuo</span><span class="v num">${money0(ms.principal)}</span><span class="s">${pr.mortgage.years ? pr.mortgage.years + ' anni' : '&nbsp;'}${pr.mortgage.rate ? ' · TAN ' + String(pr.mortgage.rate).replace('.', ',') + '%' : ''}</span></div>
         <div class="kpi"><span class="eyebrow">Rata mensile</span><span class="v num">${ms.pay ? money(ms.pay) : '—'}</span><span class="s">${ms.rows.length} mes${ms.rows.length === 1 ? 'e' : 'i'} registrat${ms.rows.length === 1 ? 'o' : 'i'}</span></div>
@@ -653,47 +655,49 @@ VIEWS.proprieta = () => {
     <div class="kpi"><span class="eyebrow">Prezzo d'acquisto</span><span class="v num">${+pr.purchasePrice ? money0(+pr.purchasePrice) : '—'}</span><span class="s">${pr.purchaseDate ? dShort(pr.purchaseDate) : '&nbsp;'}</span></div>
     <div class="kpi"><span class="eyebrow">Quota di tua proprietà</span><span class="v num ${value && ms && value - ms.res < 0 ? 'neg' : 'pos'}">${value ? money0(value - (ms ? ms.res : 0)) : '—'}</span><span class="s">Valore meno debito residuo</span></div>
     <div class="kpi"><span class="eyebrow">Variazione di valore</span><span class="v num ${value - +pr.purchasePrice >= 0 ? 'pos' : 'neg'}">${value && +pr.purchasePrice ? (value >= +pr.purchasePrice ? '+' : '−') + money0(Math.abs(value - +pr.purchasePrice)) : '—'}</span><span class="s">Stima rispetto all'acquisto</span></div></div></section>` : '';
-  const spese = `<section class="panel"><div class="panel-h"><h2>Spese della casa nel ${year}</h2><span class="muted num">${money(exp)}</span></div>
-    ${Object.keys(byCat).length ? Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([cid, v]) => { const c = cat(cid); return `<div class="catrow"><div class="catname"><i class="dot" style="background:${esc(c?.color || '#999')}"></i><span>${esc(c?.name || 'Senza categoria')}</span></div><div class="num">${money(v)} <span class="muted">· ${pct(v / exp)}</span></div><div class="bar"><i style="width:${(v / exp * 100).toFixed(1)}%;background:${esc(c?.color || 'var(--accent)')}"></i></div></div>`; }).join('') : `<p class="muted" style="margin:0">Nessuna spesa della casa nel ${year}.</p>`}
-    <p class="muted" style="font-size:.82rem;margin:10px 0 0">Categorie collegate: ${cats.map(id => esc(cat(id)?.name || '')).filter(Boolean).join(', ') || 'nessuna'}. Puoi cambiarle in “${saved ? 'Modifica dati' : 'Inserisci i dati'}”.</p>
+  const spese = `<section class="panel"><div class="panel-h"><h2>Spese nel ${year}</h2><span class="muted num">${money(exp)}</span></div>
+    ${Object.keys(byCat).length ? Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([cid, v]) => { const c = cat(cid); return `<div class="catrow"><div class="catname"><i class="dot" style="background:${esc(c?.color || '#999')}"></i><span>${esc(c?.name || 'Senza categoria')}</span></div><div class="num">${money(v)} <span class="muted">· ${pct(v / exp)}</span></div><div class="bar"><i style="width:${(v / exp * 100).toFixed(1)}%;background:${esc(c?.color || 'var(--accent)')}"></i></div></div>`; }).join('') : `<p class="muted" style="margin:0">Nessuna spesa per ${esc(pr.name)} nel ${year}. Quando registri un movimento, scegli “${esc(pr.name)}” nel campo Proprietà.</p>`}
   </section>
-  <section class="panel"><div class="panel-h"><h2>Movimenti della casa nel ${year}</h2><span class="pill num">${ptx.length}</span></div>${ptx.length ? txList(ptx.slice(0, 40)) + (ptx.length > 40 ? `<p class="muted" style="margin:10px 0 0">Mostrati gli ultimi 40. Gli altri sono in Movimenti, filtrando per categoria.</p>` : '') : '<p class="muted" style="margin:0">Nessun movimento.</p>'}</section>`;
-  return head + notice + summary + mortHTML + spese + valueHTML;
+  <section class="panel"><div class="panel-h"><h2>Movimenti nel ${year}</h2><span class="pill num">${ptx.length}</span></div>${ptx.length ? txList(ptx.slice(0, 40)) + (ptx.length > 40 ? `<p class="muted" style="margin:10px 0 0">Mostrati gli ultimi 40. Gli altri sono in Movimenti, filtrando per proprietà.</p>` : '') : '<p class="muted" style="margin:0">Nessun movimento.</p>'}</section>`;
+  return head + summary + mortHTML + spese + valueHTML;
 };
-function propForm() {
-  const pr = prop() || { name: 'Marzabotto 14' }, m = pr.mortgage || {};
-  const expCats = catOptions('spesa');
-  const mGuess = m.categoryId || guessCat(/mutuo/i);
-  const defCats = pr.expenseCats || S.categories.filter(c => c.kind === 'spesa' && /condomin|utenz|bollett|assicuraz.*casa|wi-?fi|internet|luce|gas|acqua|manutenz|imu|tari|rifiuti/i.test(c.name)).map(c => c.id);
+function propForm(pr) {
+  const isNew = !pr; pr = pr || { name: S.properties.length ? '' : 'Marzabotto 14' };
+  const m = pr.mortgage || {};
+  const linked = !isNew && S.transactions.some(t => t.propertyId === pr.id);
   openForm({
-    title: 'Dati di ' + (pr.name || 'Marzabotto 14'), wide: true,
-    intro: `<p class="muted" style="margin:0;font-size:.88rem">Compila quello che sai: puoi aggiornare questi dati in qualsiasi momento.</p>`,
+    title: isNew ? 'Nuova proprietà' : 'Dati di ' + pr.name, wide: true,
+    intro: `<p class="muted" style="margin:0;font-size:.88rem">Compila quello che sai: puoi aggiornare questi dati in qualsiasi momento. Se l'immobile non ha un mutuo, lascia vuota quella parte.</p>`,
     fields: [
-      [{ id: 'name', label: 'Nome', value: pr.name || 'Marzabotto 14', required: true }, { id: 'address', label: 'Indirizzo (facoltativo)', value: pr.address || '', placeholder: 'Via Marzabotto 14, …' }],
+      [{ id: 'name', label: 'Nome', value: pr.name || '', placeholder: 'Es. Casa Milano, Beausoleil', required: true }, { id: 'address', label: 'Indirizzo (facoltativo)', value: pr.address || '' }],
       [{ id: 'purchasePrice', label: 'Prezzo d\'acquisto (€)', num: true, value: pr.purchasePrice ?? '' }, { id: 'purchaseDate', label: 'Data d\'acquisto', type: 'date', value: pr.purchaseDate || '' }],
       [{ id: 'currentValue', label: 'Valore stimato oggi (€)', num: true, value: pr.currentValue ?? '' }, { id: 'valueDate', label: 'Data della stima', type: 'date', value: pr.valueDate || todayISO() }],
       { id: 'h-m', type: 'heading', label: 'Mutuo' },
       [{ id: 'bank', label: 'Banca', value: m.bank || '' }, { id: 'principal', label: 'Totale prestito mutuo (€)', num: true, value: m.principal ?? '' }],
       [{ id: 'startDate', label: 'Data prima rata', type: 'date', value: m.startDate || '' }, { id: 'years', label: 'Durata (anni)', num: true, value: m.years ?? '' }],
       [{ id: 'rate', label: 'Tasso annuo TAN (%)', num: true, value: m.rate ?? '', placeholder: 'es. 3,2' }, { id: 'monthlyPayment', label: 'Rata mensile (€)', num: true, value: m.monthlyPayment ?? '', hint: 'Se la lasci vuota la calcolo da importo, tasso e durata' }],
-      [{ id: 'residual', label: 'Debito residuo a una data (facoltativo)', num: true, value: m.residual ?? '', hint: 'Utile se il mutuo è iniziato prima di usare l\'app: trovi il residuo sul piano di ammortamento' }, { id: 'refDate', label: 'Alla data del', type: 'date', value: m.refDate || '' }],
-      { id: 'categoryId', label: 'Categoria delle rate del mutuo', type: 'select', value: mGuess, options: [{ v: '', l: '— scegli —' }, ...expCats] },
-      { id: 'expenseCats', label: 'Categorie delle spese della casa', type: 'checks', value: defCats, options: expCats }
+      [{ id: 'residual', label: 'Debito residuo a una data (facoltativo)', num: true, value: m.residual ?? '', hint: 'Utile se il mutuo è iniziato prima di usare l\'app: lo trovi sul piano di ammortamento' }, { id: 'refDate', label: 'Alla data del', type: 'date', value: m.refDate || '' }],
+      { id: 'categoryId', label: 'Categoria delle rate del mutuo', type: 'select', value: m.categoryId || guessCat(/mutuo/i), options: [{ v: '', l: '— scegli —' }, ...catOptions('spesa')] }
     ],
     validate(v) {
       if (!v.name.trim()) return 'Dai un nome alla proprietà.';
+      if (S.properties.some(p => p.id !== pr.id && p.name.trim().toLowerCase() === v.name.trim().toLowerCase())) return 'Esiste già una proprietà con questo nome.';
       if (v.principal && !(parseNum(v.principal) > 0)) return 'Il totale del mutuo non è un numero valido.';
       if (parseNum(v.principal) > 0 && !v.categoryId) return 'Scegli la categoria in cui registri le rate del mutuo (puoi crearla in Impostazioni → Categorie).';
       if (v.residual && !v.refDate) return 'Indica a quale data si riferisce il debito residuo.';
     },
     async onSubmit(v) {
       const n = x => { const k = parseNum(x); return Number.isFinite(k) ? k : null; };
-      const doc = { name: v.name.trim(), address: v.address.trim(), purchasePrice: n(v.purchasePrice), purchaseDate: v.purchaseDate, currentValue: n(v.currentValue), valueDate: v.valueDate,
-        mortgage: { bank: v.bank.trim(), principal: n(v.principal), startDate: v.startDate, years: n(v.years), rate: n(v.rate), monthlyPayment: n(v.monthlyPayment), residual: n(v.residual), refDate: v.residual ? v.refDate : '', categoryId: v.categoryId },
-        expenseCats: (v.expenseCats || []).filter(id => id !== v.categoryId) };
+      const id = pr.id || uid();
+      const doc = { name: v.name.trim(), address: v.address.trim(), purchasePrice: n(v.purchasePrice), purchaseDate: v.purchaseDate, currentValue: n(v.currentValue), valueDate: v.valueDate, createdAt: pr.createdAt || Date.now(),
+        mortgage: { bank: v.bank.trim(), principal: n(v.principal), startDate: v.startDate, years: n(v.years), rate: n(v.rate), monthlyPayment: n(v.monthlyPayment), residual: n(v.residual), refDate: v.residual ? v.refDate : '', categoryId: v.categoryId } };
       if (!doc.mortgage.monthlyPayment && doc.mortgage.principal && doc.mortgage.years) doc.mortgage.monthlyPayment = Math.round(annuity(doc.mortgage.principal, doc.mortgage.rate || 0, doc.mortgage.years) * 100) / 100;
-      const ok = await put('properties', PROP_ID, doc); ok && toast('Dati della casa salvati'); return ok;
-    }
+      const ok = await put('properties', id, doc);
+      if (ok) { S.ui.propId = id; toast(isNew ? 'Proprietà aggiunta' : 'Dati salvati'); }
+      return ok;
+    },
+    deleteLabel: 'Elimina proprietà',
+    onDelete: isNew ? null : async () => { const ok = await del('properties', pr.id); if (ok) { S.ui.propId = ''; toast(linked ? 'Proprietà eliminata. I movimenti restano, senza proprietà.' : 'Proprietà eliminata'); } return ok; }
   });
 }
 function moreMenu() {
@@ -778,6 +782,7 @@ VIEWS.movimenti = () => {
       <div class="field"><label for="f-q">Cerca</label><input class="input" id="f-q" type="search" placeholder="Descrizione, categoria, importo…" value="${esc(S.ui.q)}"></div>
       <div class="field"><label for="f-acc">Conto</label><select class="input" id="f-acc"><option value="">Tutti</option>${accOpts}</select></div>
       <div class="field"><label for="f-cat">Categoria</label><select class="input" id="f-cat"><option value="">Tutte</option>${catOpts}</select></div>
+      ${S.properties.length ? `<div class="field"><label for="f-prop">Proprietà</label><select class="input" id="f-prop"><option value="">Tutte</option><option value="-" ${S.ui.fProp === '-' ? 'selected' : ''}>Nessuna proprietà</option>${propsSorted().map(p => `<option value="${esc(p.id)}" ${S.ui.fProp === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>` : ''}
       <div class="field"><label for="f-kind">Tipo</label><select class="input" id="f-kind"><option value="">Tutti</option><option value="spesa" ${S.ui.fKind === 'spesa' ? 'selected' : ''}>Spese</option><option value="entrata" ${S.ui.fKind === 'entrata' ? 'selected' : ''}>Entrate</option><option value="giroconto" ${S.ui.fKind === 'giroconto' ? 'selected' : ''}>Giroconti</option></select></div>
     </div>
     <label class="check" style="margin-top:10px"><input type="checkbox" id="f-all" ${S.ui.allMonths ? 'checked' : ''}> Cerca in tutti i mesi</label>
@@ -789,7 +794,8 @@ function txListFiltered() {
   let l = S.transactions.filter(t => (S.ui.allMonths || ymOf(t.date) === S.ui.month)
     && (!S.ui.fAcc || t.accountId === S.ui.fAcc || t.toAccountId === S.ui.fAcc)
     && (!S.ui.fCat || t.categoryId === S.ui.fCat)
-    && (!S.ui.fKind || t.kind === S.ui.fKind));
+    && (!S.ui.fKind || t.kind === S.ui.fKind)
+    && (!S.ui.fProp || (S.ui.fProp === '-' ? !propById(t.propertyId) : t.propertyId === S.ui.fProp)));
   if (q) l = l.filter(t => [t.note, cat(t.categoryId)?.name, acc(t.accountId)?.name, String(t.amount).replace('.', ',')].join(' ').toLowerCase().includes(q));
   l = sortTx(l);
   const inc = l.filter(t => t.kind === 'entrata').reduce((s, t) => s + +t.amount, 0), exp = l.filter(t => t.kind === 'spesa').reduce((s, t) => s + +t.amount, 0);
@@ -1041,11 +1047,12 @@ function txForm(t, preset) {
       [{ id: 'amount', label: 'Importo (€)', num: true, value: t.amount ?? '', placeholder: '0,00', required: true }, { id: 'date', label: 'Data', type: 'date', value: t.date, required: true }],
       { id: 'note', label: 'Descrizione', value: t.note || '', placeholder: 'Es. Spesa Esselunga' },
       [{ id: 'accountId', label: 'Conto', type: 'select', value: t.accountId, options: accs }, { id: 'toAccountId', label: 'Verso il conto', type: 'select', value: t.toAccountId || (accs.find(a => a.v !== t.accountId) || accs[0]).v, options: accs }],
-      { id: 'categoryId', label: 'Categoria', type: 'select', value: t.categoryId || '', options: [{ v: '', l: '—' }] }
+      { id: 'categoryId', label: 'Categoria', type: 'select', value: t.categoryId || '', options: [{ v: '', l: '—' }] },
+      ...(S.properties.length ? [{ id: 'propertyId', label: 'Proprietà', type: 'select', value: t.propertyId || '', options: [{ v: '', l: '— nessuna —' }, ...propOptions()], hint: 'A quale immobile si riferisce (luce, condominio, rata del mutuo…)' }] : [])
     ],
     onChange(v, form) {
       const g = v.kind === 'giroconto';
-      showField(form, 'toAccountId', g); showField(form, 'categoryId', !g);
+      showField(form, 'toAccountId', g); showField(form, 'categoryId', !g); showField(form, 'propertyId', !g);
       form.querySelector('[data-f="accountId"] label').textContent = g ? 'Dal conto' : 'Conto';
       const sel = form.elements.categoryId, keep = sel.value || t.categoryId;
       if (!g && sel.dataset.kind !== v.kind) {
@@ -1063,7 +1070,7 @@ function txForm(t, preset) {
     },
     async onSubmit(v) {
       const doc = { kind: v.kind, amount: Math.round(parseNum(v.amount) * 100) / 100, date: v.date, note: v.note.trim(), accountId: v.accountId, createdAt: t.createdAt || Date.now() };
-      if (v.kind === 'giroconto') doc.toAccountId = v.toAccountId; else doc.categoryId = v.categoryId || '';
+      if (v.kind === 'giroconto') doc.toAccountId = v.toAccountId; else { doc.categoryId = v.categoryId || ''; if (v.propertyId) doc.propertyId = v.propertyId; }
       if (t.importKey) doc.importKey = t.importKey;
       if (t.demo) doc.demo = true;
       const ok = await put('transactions', t.id || uid(), doc);
@@ -1165,6 +1172,7 @@ function recForm(r) {
       [{ id: 'amount', label: 'Importo (€)', num: true, value: r.amount ?? '', required: true }, { id: 'frequency', label: 'Frequenza', type: 'select', value: r.frequency, options: Object.entries(FREQ).map(([v, l]) => ({ v, l })) }],
       [{ id: 'nextDate', label: 'Prossima data', type: 'date', value: r.nextDate, required: true }, { id: 'accountId', label: 'Conto', type: 'select', value: r.accountId, options: accs.length ? accs : [{ v: '', l: '—' }] }],
       { id: 'categoryId', label: 'Categoria', type: 'select', value: r.categoryId || '', options: [{ v: '', l: '—' }] },
+      ...(S.properties.length ? [{ id: 'propertyId', label: 'Proprietà', type: 'select', value: r.propertyId || '', options: [{ v: '', l: '— nessuna —' }, ...propOptions()] }] : []),
       { id: 'active', label: 'Attiva', type: 'checkbox', value: r.active !== false }
     ],
     onChange(v, form) {
@@ -1172,13 +1180,13 @@ function recForm(r) {
       if (sel.dataset.kind !== v.kind) { const opts = catOptions(v.kind); sel.innerHTML = opts.map(o => `<option value="${esc(o.v)}">${esc(o.l)}</option>`).join(''); if (opts.some(o => o.v === keep)) sel.value = keep; sel.dataset.kind = v.kind; }
     },
     validate: v => !v.name.trim() ? 'Dai un nome alla ricorrenza.' : !(parseNum(v.amount) > 0) ? 'Inserisci un importo maggiore di zero.' : !v.nextDate ? 'Inserisci la prossima data.' : '',
-    async onSubmit(v) { const ok = await put('recurring', r.id || uid(), { ...strip(r), kind: v.kind, name: v.name.trim(), amount: parseNum(v.amount), frequency: v.frequency, nextDate: v.nextDate, accountId: v.accountId, categoryId: v.categoryId, active: !!v.active }); ok && toast('Ricorrenza salvata'); return ok; },
+    async onSubmit(v) { const ok = await put('recurring', r.id || uid(), { ...strip(r), kind: v.kind, name: v.name.trim(), amount: parseNum(v.amount), frequency: v.frequency, nextDate: v.nextDate, accountId: v.accountId, categoryId: v.categoryId, propertyId: v.propertyId || '', active: !!v.active }); ok && toast('Ricorrenza salvata'); return ok; },
     onDelete: isNew ? null : async () => { const ok = await del('recurring', r.id); ok && toast('Ricorrenza eliminata'); return ok; }
   });
 }
 async function recPost(r) {
   if (!acc(r.accountId)) { toast('Assegna un conto a questa ricorrenza prima di registrarla.', true); return; }
-  const ok = await put('transactions', uid(), { kind: r.kind, amount: +r.amount, date: r.nextDate, note: r.name, accountId: r.accountId, categoryId: r.categoryId || '', recurringId: r.id, createdAt: Date.now(), ...(r.demo ? { demo: true } : {}) });
+  const ok = await put('transactions', uid(), { kind: r.kind, amount: +r.amount, date: r.nextDate, note: r.name, accountId: r.accountId, categoryId: r.categoryId || '', ...(r.propertyId ? { propertyId: r.propertyId } : {}), recurringId: r.id, createdAt: Date.now(), ...(r.demo ? { demo: true } : {}) });
   if (ok && await put('recurring', r.id, { ...strip(r), nextDate: nextDate(r.nextDate, r.frequency) })) toast(`Registrato: ${r.name} ${money(+r.amount)}`);
 }
 function ruleForm() {
@@ -1362,10 +1370,17 @@ document.addEventListener('click', e => {
   const a = t.dataset.act, id = t.dataset.id;
   if (a === 'close') { if (e.target.closest('#modal')) closeModal(); return; }
   if (a === 'more') { e.preventDefault(); return moreMenu(); }
-  if (a === 'edit-prop') return propForm();
+  if (a === 'edit-prop') return propForm(propById(id));
+  if (a === 'new-prop') return propForm();
+  if (a === 'prop-sel') { S.ui.propId = id; render(); return; }
   if (a === 'prop-year') { S.ui.propYear = String(+S.ui.propYear + +t.dataset.d); render(); return; }
-  if (a === 'prop-pay') { const m = prop()?.mortgage || {}; return txForm(null, { categoryId: m.categoryId || guessCat(/mutuo/i), amount: m.monthlyPayment || '', note: 'Rata mutuo ' + propName() }); }
-  if (a === 'prop-exp') { const pr = prop(); return txForm(null, { categoryId: (pr?.expenseCats || [])[0] || '', note: '' }); }
+  if (a === 'prop-pay') { const pr = curProp(), m = pr?.mortgage || {}; return txForm(null, { categoryId: m.categoryId || guessCat(/mutuo/i), amount: m.monthlyPayment || '', note: 'Rata mutuo ' + (pr?.name || ''), propertyId: pr?.id || '' }); }
+  if (a === 'prop-exp') {
+    const pr = curProp(), mc = pr?.mortgage?.categoryId, freq = {};
+    S.transactions.forEach(x => { if (pr && x.propertyId === pr.id && x.kind === 'spesa' && x.categoryId && x.categoryId !== mc) freq[x.categoryId] = (freq[x.categoryId] || 0) + 1; });
+    const top = Object.entries(freq).sort((x, y) => y[1] - x[1])[0]?.[0] || guessCat(/utenz|bollett|condomin/i) || catsOf('spesa').find(c => c.id !== mc)?.id || '';
+    return txForm(null, { propertyId: pr?.id || '', categoryId: top });
+  }
   if (a === 'year') { S.ui.year = String(+S.ui.year + +t.dataset.d); render(); return; }
   if (a === 'month') { S.ui[t.dataset.key] = addMonths(S.ui[t.dataset.key], +t.dataset.d); render(); return; }
   if (a === 'new-tx') return txForm();
@@ -1412,6 +1427,7 @@ document.addEventListener('change', async e => {
   const el = e.target;
   if (el.id === 'f-acc') { S.ui.fAcc = el.value; $('#txlist').innerHTML = txListFiltered(); }
   else if (el.id === 'f-cat') { S.ui.fCat = el.value; $('#txlist').innerHTML = txListFiltered(); }
+  else if (el.id === 'f-prop') { S.ui.fProp = el.value; $('#txlist').innerHTML = txListFiltered(); }
   else if (el.id === 'f-kind') { S.ui.fKind = el.value; $('#txlist').innerHTML = txListFiltered(); }
   else if (el.id === 'f-all') { S.ui.allMonths = el.checked; $('#txlist').innerHTML = txListFiltered(); }
   else if (el.dataset.budget) {
