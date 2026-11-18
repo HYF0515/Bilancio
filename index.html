@@ -959,6 +959,11 @@ function pastYearBudget(id, year) {
   for (let m = 1; m <= 12; m++) { const v = pastMonthBudget(id, year + '-' + pad(m)); if (v != null) { any = true; t += v; } }
   return any ? t : null;
 }
+function spentIn(id, prefix) {
+  let any = false, t = 0;
+  for (const tx of S.transactions) { if (!String(tx.date).startsWith(prefix)) continue; any = true; if (isOut(tx) && tx.categoryId === id) t += +tx.amount || 0; }
+  return any ? t : null;
+}
 const prevHint = (label, v) => `<small class="muted" style="display:block;font-size:.75rem;margin-top:3px;white-space:nowrap">${label}: ${v == null ? '—' : money0(v)}</small>`;
 const hasMonthOverride = (id, ym) => { const bm = (S.settings.budgetsMonth || {})[ym]; return !!(bm && bm[id] != null); };
 // Budget annuale: quello dedicato se c'è, altrimenti la somma dei 12 budget mensili.
@@ -982,7 +987,7 @@ function budgetYearView() {
     const sub = own ? `<small class="muted" style="display:block;font-size:.75rem">Budget annuale dedicato${+mb[c.id] ? ` · mensile ${money0(+mb[c.id])}` : ''}</small>` : (sumM ? `<small class="muted" style="display:block;font-size:.75rem">${varies ? 'Somma dei budget dei 12 mesi' : 'Da budget mensile: 12 × ' + money0(sumM / 12)}</small>` : '');
     return `<tr><td><div class="catname"><i class="dot" style="background:${esc(c.color)}"></i><span>${esc(c.name)}</span></div>${sub}
       <div class="bar ${cls}" style="margin-top:8px"><i style="width:${Math.min(100, r * 100).toFixed(1)}%"></i></div></td>
-      <td class="r" style="width:160px"><input class="input num" style="text-align:right" id="by-${esc(c.id)}" data-budget-year="${esc(c.id)}" inputmode="decimal" placeholder="${sumM ? String(Math.round(sumM * 100) / 100).replace('.', ',') : '—'}" value="${own ? String(+yb[c.id]).replace('.', ',') : ''}" aria-label="Budget annuale ${esc(c.name)}">${prevHint(String(+year - 1), pastYearBudget(c.id, String(+year - 1)))}</td>
+      <td class="r" style="width:160px"><input class="input num" style="text-align:right" id="by-${esc(c.id)}" data-budget-year="${esc(c.id)}" inputmode="decimal" placeholder="${sumM ? String(Math.round(sumM * 100) / 100).replace('.', ',') : '—'}" value="${own ? String(+yb[c.id]).replace('.', ',') : ''}" aria-label="Budget annuale ${esc(c.name)}">${prevHint('Speso ' + (+year - 1), spentIn(c.id, String(+year - 1)))}</td>
       <td class="r num">${money0(s)}${b ? `<br><span class="muted" style="font-size:.78rem">${pct(r)}</span>` : ''}</td>
       <td class="r num ${b && b - s < 0 ? 'neg' : ''}">${b ? money0(b - s) : '<span class="muted">—</span>'}</td></tr>`;
   }).join('');
@@ -1012,7 +1017,7 @@ VIEWS.budget = () => {
     const cls = b && r > 1 ? 'over' : b && r >= .8 ? 'near' : '';
     return `<tr><td><div class="catname"><i class="dot" style="background:${esc(c.color)}"></i><span>${esc(c.name)}</span></div>${hasMonthOverride(c.id, ym) && (+defB[c.id] || 0) !== b ? `<small class="muted" style="display:block;font-size:.75rem">Solo per ${ymLabel(ym).toLowerCase()} · predefinito ${money0(+defB[c.id] || 0)}</small>` : ''}${+(S.settings.budgetsYear || {})[c.id] ? `<small class="muted" style="display:block;font-size:.75rem">Budget annuale ${money0(+S.settings.budgetsYear[c.id])}</small>` : ''}
       <div class="bar ${cls}" style="margin-top:8px"><i style="width:${Math.min(100, r * 100).toFixed(1)}%"></i></div></td>
-      <td class="r" style="width:150px"><input class="input num" style="text-align:right" id="b-${esc(c.id)}" data-budget="${esc(c.id)}" inputmode="decimal" placeholder="—" value="${b ? String(b).replace('.', ',') : ''}" aria-label="Budget ${esc(c.name)}">${prevHint(ymShort(ym) + ' ' + (+ym.slice(0, 4) - 1), pastMonthBudget(c.id, (+ym.slice(0, 4) - 1) + ym.slice(4)))}</td>
+      <td class="r" style="width:150px"><input class="input num" style="text-align:right" id="b-${esc(c.id)}" data-budget="${esc(c.id)}" inputmode="decimal" placeholder="—" value="${b ? String(b).replace('.', ',') : ''}" aria-label="Budget ${esc(c.name)}">${prevHint('Speso ' + ymShort(ym) + ' ' + (+ym.slice(0, 4) - 1), spentIn(c.id, (+ym.slice(0, 4) - 1) + ym.slice(4)))}</td>
       <td class="r num">${money(s)}</td>
       <td class="r num ${b && b - s < 0 ? 'neg' : ''}">${b ? money(b - s) : '<span class="muted">—</span>'}</td></tr>`;
   }).join('');
@@ -1025,7 +1030,7 @@ VIEWS.budget = () => {
     <div class="kpi"><span class="eyebrow">Disponibile</span><span class="v num ${totB - totS < 0 ? 'neg' : 'pos'}">${money0(totB - totS)}</span><span class="s">${isCur ? (dim - dayN) + ' giorni rimasti' : 'Mese chiuso'}</span></div>
     <div class="kpi"><span class="eyebrow">Proiezione fine mese</span><span class="v num ${totB && projected > totB ? 'neg' : ''}">${money0(projected)}</span><span class="s">${isCur ? 'Al ritmo di spesa attuale' : 'Spesa effettiva'}</span></div>
   </section>
-  <section class="panel"><div class="panel-h"><h2>Per categoria</h2><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="muted" style="font-size:.85rem">L'importo vale solo per ${ymLabel(ym).toLowerCase()}: scrivi e premi Invio</span><button class="btn small" data-act="budget-default">Usa questi budget come predefiniti</button></div></div>
+  <section class="panel"><div class="panel-h"><h2>Per categoria</h2><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="muted" style="font-size:.85rem">L'importo vale solo per ${ymLabel(ym).toLowerCase()}: scrivi e premi Invio</span><button class="btn small" data-act="budget-copy">Copia da un altro mese</button><button class="btn small" data-act="budget-default">Usa questi budget come predefiniti</button></div></div>
     ${cats.length ? `<div class="tbl-wrap"><table><thead><tr><th>Categoria</th><th class="r">Budget</th><th class="r">Speso</th><th class="r">Residuo</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty"><p>Crea prima le categorie di spesa nelle impostazioni.</p><a class="btn" href="#impostazioni">Vai alle impostazioni</a></div>`}
   </section>`;
 };
@@ -1358,6 +1363,35 @@ function unusedCategories() {
   S.recurring.forEach(r => r.categoryId && used.add(r.categoryId));
   S.properties.forEach(p => p.mortgage && p.mortgage.categoryId && used.add(p.mortgage.categoryId));
   return S.categories.filter(c => !used.has(c.id)).sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name, 'it'));
+}
+// Copia nel mese selezionato i budget (o la spesa effettiva) di un altro mese
+function budgetCopyForm() {
+  const ym = S.ui.budgetMonth;
+  const first = S.transactions.reduce((m, t) => t.date && t.date.slice(0, 7) < m ? t.date.slice(0, 7) : m, addMonths(ym, -12));
+  const opts = []; for (let x = addMonths(ym, 12); x >= first; x = addMonths(x, -1)) if (x !== ym) opts.push({ v: x, l: ymLabel(x) + (x === addMonths(ym, -1) ? ' (mese precedente)' : x === addMonths(ym, -12) ? ' (stesso mese, anno prima)' : '') });
+  openForm({
+    title: 'Copia in ' + ymLabel(ym).toLowerCase(),
+    intro: `<p class="muted" style="margin:0;font-size:.88rem">Imposto il budget di ogni categoria di spesa di ${esc(ymLabel(ym).toLowerCase())} copiando da un altro mese. Dopo puoi correggere le singole voci.</p>`,
+    fields: [
+      { id: 'from', label: 'Da quale mese', type: 'select', value: addMonths(ym, -1), options: opts },
+      { id: 'what', type: 'seg', label: 'Cosa copiare', value: 'budget', options: [{ v: 'budget', l: 'Il suo budget' }, { v: 'spent', l: 'La spesa effettiva' }] },
+      { id: 'round', label: 'Arrotonda la spesa effettiva alla decina di euro superiore', type: 'checkbox', value: true }
+    ],
+    onChange(v, form) { showField(form, 'round', v.what === 'spent'); },
+    submitLabel: 'Copia',
+    async onSubmit(v) {
+      const src = v.from, byCat = monthStats(src).byCat, m = {};
+      for (const c of catsOf('spesa')) {
+        let val = v.what === 'spent' ? (byCat[c.id] || 0) : monthBudget(c.id, src);
+        if (v.what === 'spent') val = v.round ? Math.ceil(val / 10) * 10 : Math.round(val);
+        m[c.id] = Math.round(val * 100) / 100;
+      }
+      const all = { ...(S.settings.budgetsMonth || {}), [ym]: m };
+      const ok = await saveSettings({ budgetsMonth: all });
+      ok && toast(`Copiato ${v.what === 'spent' ? 'la spesa effettiva' : 'il budget'} di ${ymLabel(src).toLowerCase()} in ${ymLabel(ym).toLowerCase()}`);
+      return ok;
+    }
+  });
 }
 function cleanCatsForm() {
   const list = unusedCategories();
@@ -1759,6 +1793,7 @@ document.addEventListener('click', e => {
   if (a === 'fx-refresh') return fxRefresh(true);
   if (a === 'fx-edit') return rateForm(t.dataset.cur);
   if (a === 'fx-add') return openForm({ title: 'Aggiungi una valuta', fields: [{ id: 'cur', label: 'Valuta', type: 'select', options: curOptions().filter(o => o.v !== BASE) }], async onSubmit(v) { setTimeout(() => rateForm(v.cur), 0); return true; } });
+  if (a === 'budget-copy') return budgetCopyForm();
   if (a === 'budget-default') {
     const ym = S.ui.budgetMonth, nb = {};
     catsOf('spesa').forEach(c => { const v = monthBudget(c.id, ym); if (v) nb[c.id] = v; });
