@@ -88,6 +88,7 @@ h1{font-size:1.75rem;font-weight:700} h2{font-size:1.1rem;font-weight:700} h3{fo
 
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);background:var(--surface);padding:8px 14px;border-radius:8px;cursor:pointer;font-weight:500;white-space:nowrap}
 .btn:hover{background:var(--surface-2)}
+a.btn{color:inherit;text-decoration:none}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .btn.primary:hover{filter:brightness(1.08)}
 .btn.ghost{background:transparent;border-color:transparent}
@@ -539,8 +540,73 @@ VIEWS.panoramica = () => {
         return `<div class="catrow"><div class="catname"><i class="dot" style="background:${esc(c?.color || '#999')}"></i><span>${esc(c?.name || 'Senza categoria')}</span></div><div class="num">${money(v)} <span class="muted">· ${pct(v / st.exp)}</span></div><div class="bar"><i style="width:${w.toFixed(1)}%;background:${esc(c?.color || 'var(--accent)')}"></i></div></div>`; }).join('') : `<div class="empty"><p>Nessuna spesa registrata in ${ymLabel(ym).toLowerCase()}.</p></div>`}
     </section>
     <section class="panel"><div class="panel-h"><h2>Ultimi movimenti</h2><a class="btn small ghost" href="#movimenti">Tutti →</a></div>${txList(recent, { group: false })}</section>
-  </div>`;
+  </div>
+  ${yearBudgetPanel(ym.slice(0, 4))}`;
 };
+
+/* ---------- resoconto annuale vs budget ---------- */
+function yearBudget(year) {
+  const budgets = S.settings.budgets || {};
+  const bIds = Object.keys(budgets).filter(id => +budgets[id] > 0 && cat(id));
+  const monthlyB = bIds.reduce((s, id) => s + +budgets[id], 0);
+  const today = todayISO(), cy = today.slice(0, 4);
+  const elapsed = year < cy ? 12 : year > cy ? 0 : +today.slice(5, 7);
+  const frac = year === cy ? (elapsed - 1) + new Date().getDate() / new Date(+year, elapsed, 0).getDate() : elapsed;
+  const byCat = {}, byMonth = Array(12).fill(0);
+  let other = 0;
+  for (const t of S.transactions) {
+    if (t.kind !== 'spesa' || !String(t.date).startsWith(year)) continue;
+    const v = +t.amount || 0, m = +t.date.slice(5, 7) - 1;
+    if (bIds.includes(t.categoryId)) { byCat[t.categoryId] = (byCat[t.categoryId] || 0) + v; byMonth[m] += v; }
+    else other += v;
+  }
+  const spent = sumObj(byCat);
+  return { year, budgets, bIds, monthlyB, elapsed, frac, byCat, byMonth, other, spent, ytdB: monthlyB * elapsed, yearB: monthlyB * 12, proj: frac > 0 ? spent / frac * 12 : 0, isCur: year === cy };
+}
+function yearBudgetPanel(year) {
+  const y = yearBudget(year);
+  const head = `<div class="panel-h"><div><h2>Resoconto ${year} vs budget</h2><span class="muted" style="font-size:.82rem">Budget mensile × mesi trascorsi${y.isCur ? `, fino a ${MESI[y.elapsed - 1].toLowerCase()}` : ''}</span></div><a class="btn small ghost" href="#budget">Modifica budget →</a></div>`;
+  if (!y.bIds.length) return `<section class="panel">${head}<div class="empty"><p>Imposta un budget mensile per categoria per vedere come stai andando nell'anno.</p><a class="btn" href="#budget">Imposta il budget</a></div></section>`;
+  if (!y.elapsed) return `<section class="panel">${head}<p class="muted" style="margin:0">Il ${year} non è ancora iniziato. Budget previsto per l'anno: <b class="num">${money0(y.yearB)}</b>.</p></section>`;
+  const diff = y.ytdB - y.spent;
+  const rows = y.bIds.map(id => ({ c: cat(id), s: y.byCat[id] || 0, b: +y.budgets[id] * y.elapsed })).sort((a, b) => (b.s / b.b) - (a.s / a.b));
+  const projTile = y.isCur
+    ? `<div class="kpi"><span class="eyebrow">Proiezione a fine anno</span><span class="v num ${y.proj > y.yearB ? 'neg' : ''}">${money0(y.proj)}</span><span class="s">su un budget annuo di ${money0(y.yearB)}</span></div>`
+    : `<div class="kpi"><span class="eyebrow">Utilizzo del budget</span><span class="v num ${y.spent > y.yearB ? 'neg' : ''}">${pct(y.spent / y.yearB)}</span><span class="s">Budget annuo ${money0(y.yearB)}</span></div>`;
+  return `<section class="panel">${head}
+    <div class="kpis" style="margin-bottom:16px">
+      <div class="kpi"><span class="eyebrow">Speso nel ${year}</span><span class="v num">${money0(y.spent)}</span><span class="s">Solo categorie con budget</span></div>
+      <div class="kpi"><span class="eyebrow">Budget a oggi</span><span class="v num">${money0(y.ytdB)}</span><span class="s">${y.elapsed} mes${y.elapsed === 1 ? 'e' : 'i'} × ${money0(y.monthlyB)}</span></div>
+      <div class="kpi"><span class="eyebrow">${diff >= 0 ? 'Sotto budget' : 'Sopra budget'}</span><span class="v num ${diff >= 0 ? 'pos' : 'neg'}">${money0(Math.abs(diff))}</span><span class="s">${pct(y.spent / y.ytdB)} del budget usato</span></div>
+      ${projTile}
+    </div>
+    <div class="chart-legend" style="margin-bottom:6px"><span><i class="dot" style="background:var(--accent)"></i>Entro il budget</span><span><i class="dot" style="background:var(--neg)"></i>Oltre il budget</span><span><i class="dot" style="background:var(--muted)"></i>Budget mensile</span></div>
+    <div class="chart" data-chart="yearbudget" data-year="${year}"></div>
+    <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Categoria</th><th class="r">Speso</th><th class="r hide-m">Budget a oggi</th><th class="r">Scostamento</th></tr></thead><tbody>
+      ${rows.map(r => { const ratio = r.b ? r.s / r.b : 0, cls = ratio > 1 ? 'over' : ratio >= .9 ? 'near' : '', d = r.b - r.s;
+        return `<tr><td><div class="catname"><i class="dot" style="background:${esc(r.c.color)}"></i><span>${esc(r.c.name)}</span></div><div class="bar ${cls}" style="margin-top:8px"><i style="width:${Math.min(100, ratio * 100).toFixed(1)}%"></i></div></td><td class="r num">${money0(r.s)}<br><span class="muted" style="font-size:.78rem">${pct(ratio)}</span></td><td class="r num hide-m">${money0(r.b)}</td><td class="r num ${Math.round(d) === 0 ? 'muted' : d > 0 ? 'pos' : 'neg'}">${Math.round(d) === 0 ? 'in linea' : (d > 0 ? '−' : '+') + money0(Math.abs(d))}<br><span class="muted" style="font-size:.78rem">su ${money0(r.b)}</span></td></tr>`; }).join('')}
+      ${y.other ? `<tr><td class="muted">Spese in categorie senza budget</td><td class="r num muted">${money0(y.other)}</td><td class="r muted hide-m">—</td><td class="r muted">—</td></tr>` : ''}
+    </tbody></table></div>
+  </section>`;
+}
+function yearBudgetChart(W, year) {
+  const y = yearBudget(year);
+  const H = 200, pl = 44, pr = 6, pt = 10, pb = 24, iw = W - pl - pr, ih = H - pt - pb;
+  const max = niceMax(Math.max(1, y.monthlyB * 1.15, ...y.byMonth));
+  const bw = iw / 12, w = Math.max(6, Math.min(26, bw * .58));
+  const yy = v => pt + ih - ih * v / max;
+  let g = '';
+  for (let i = 0; i <= 4; i++) { const v = max * i / 4; g += `<line class="grid-l" x1="${pl}" x2="${W - pr}" y1="${yy(v)}" y2="${yy(v)}"/><text x="${pl - 6}" y="${yy(v) + 4}" text-anchor="end">${kfmt(v)}</text>`; }
+  y.byMonth.forEach((v, i) => {
+    const cx = pl + bw * i + bw / 2, future = i >= y.elapsed;
+    const fill = v > y.monthlyB ? 'var(--neg)' : 'var(--accent)';
+    if (v > 0) g += `<rect x="${cx - w / 2}" y="${yy(v)}" width="${w}" height="${Math.max(0, pt + ih - yy(v))}" rx="2" fill="${fill}" ${future ? 'fill-opacity=".35"' : ''}><title>${MESI[i]} ${year} · Speso ${money(v)} su ${money(y.monthlyB)}</title></rect>`;
+    if (W > 420 || i % 2 === 0) g += `<text x="${cx}" y="${H - 6}" text-anchor="middle" ${future ? 'style="opacity:.55"' : ''}>${MESI_B[i]}</text>`;
+  });
+  g += `<line x1="${pl}" x2="${W - pr}" y1="${yy(y.monthlyB)}" y2="${yy(y.monthlyB)}" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4"/>`;
+  g += `<text x="${W - pr}" y="${yy(y.monthlyB) - 6}" text-anchor="end" style="fill:var(--fg);font-weight:600">${money0(y.monthlyB)}/mese</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Spese mensili ${year} rispetto al budget">${g}</svg>`;
+}
 
 VIEWS.movimenti = () => {
   const accOpts = activeAccounts().map(a => `<option value="${esc(a.id)}" ${S.ui.fAcc === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('');
@@ -702,6 +768,7 @@ function drawCharts() {
     const W = Math.max(280, el.clientWidth || 600);
     if (el.dataset.chart === 'cashflow') el.innerHTML = cashflowChart(W);
     if (el.dataset.chart === 'networth') el.innerHTML = networthChart(W);
+    if (el.dataset.chart === 'yearbudget') el.innerHTML = yearBudgetChart(W, el.dataset.year);
   });
 }
 function cashflowChart(W) {
