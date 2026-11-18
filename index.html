@@ -387,7 +387,7 @@ function balancesNative(upTo) {
     if (upTo && t.date > upTo) continue;
     if (t.kind === 'entrata') b[t.accountId] = (b[t.accountId] || 0) + valIn(t.accountId, t);
     else if (t.kind === 'spesa') b[t.accountId] = (b[t.accountId] || 0) - valIn(t.accountId, t);
-    else if (t.kind === 'giroconto') { b[t.accountId] = (b[t.accountId] || 0) - valIn(t.accountId, t); b[t.toAccountId] = (b[t.toAccountId] || 0) + (t.toAmount != null && txCur(t) !== accCur(t.toAccountId) && t.toCurrency === accCur(t.toAccountId) ? +t.toAmount : valIn(t.toAccountId, t)); }
+    else if (t.kind === 'giroconto' || t.kind === 'accantonamento') { b[t.accountId] = (b[t.accountId] || 0) - valIn(t.accountId, t); b[t.toAccountId] = (b[t.toAccountId] || 0) + (t.toAmount != null && txCur(t) !== accCur(t.toAccountId) && t.toCurrency === accCur(t.toAccountId) ? +t.toAmount : valIn(t.toAccountId, t)); }
   }
   return b;
 }
@@ -407,6 +407,10 @@ function rateForm(cur) {
   });
 }
 
+// Accantonamento: trasferimento verso un fondo che conta come uscita (es. tasse future).
+// Le spese pagate da un conto "fondo" non contano di nuovo come uscite: sono già state accantonate.
+const isReserve = id => !!acc(id)?.reserve;
+const isOut = t => (t.kind === 'spesa' && !isReserve(t.accountId)) || t.kind === 'accantonamento';
 const sumObj = o => Object.values(o).reduce((a, b) => a + b, 0);
 const holdingValue = h => (+h.quantity || 0) * (+h.price || 0);
 const holdingCost = h => (+h.quantity || 0) * (+h.avgCost || 0);
@@ -417,7 +421,7 @@ function monthStats(ym) {
     if (ymOf(t.date) !== ym) continue;
     const v = +t.amount || 0;
     if (t.kind === 'entrata') inc += v;
-    else if (t.kind === 'spesa') { exp += v; byCat[t.categoryId] = (byCat[t.categoryId] || 0) + v; }
+    else if (isOut(t)) { exp += v; byCat[t.categoryId] = (byCat[t.categoryId] || 0) + v; }
   }
   return { inc, exp, net: inc - exp, rate: inc > 0 ? (inc - exp) / inc : NaN, byCat };
 }
@@ -638,7 +642,8 @@ function txRow(t) {
   const c = cat(t.categoryId), a = acc(t.accountId);
   let title, sub, cls, sign;
   if (t.kind === 'giroconto') { title = t.note || 'Giroconto'; sub = `${a?.name || '?'} → ${acc(t.toAccountId)?.name || '?'}`; cls = 'muted'; sign = ''; }
-  else { title = t.note || c?.name || 'Movimento'; sub = [c?.name, propById(t.propertyId)?.name, a?.name].filter(Boolean).join(' · '); cls = t.kind === 'entrata' ? 'pos' : ''; sign = t.kind === 'entrata' ? '+' : '−'; }
+  else if (t.kind === 'accantonamento') { title = t.note || 'Accantonamento ' + (c?.name || ''); sub = ['Accantonato', c?.name, `${a?.name || '?'} → ${acc(t.toAccountId)?.name || '?'}`].filter(Boolean).join(' · '); cls = ''; sign = '−'; }
+  else { const fromFund = t.kind === 'spesa' && isReserve(t.accountId); title = t.note || c?.name || 'Movimento'; sub = [fromFund ? 'Pagato dal fondo' : '', c?.name, propById(t.propertyId)?.name, a?.name].filter(Boolean).join(' · '); cls = t.kind === 'entrata' ? 'pos' : fromFund ? 'muted' : ''; sign = t.kind === 'entrata' ? '+' : '−'; }
   return `<div class="tx" data-act="edit-tx" data-id="${esc(t.id)}" tabindex="0" role="button">${catBadge(c, t.kind)}<div class="tx-main"><b>${esc(title)}</b><small>${esc(sub)}</small></div><div class="tx-amt num ${cls}">${sign}${txCur(t) !== BASE ? moneyC(txOrig(t), txCur(t)) : money(+t.amount)}${txCur(t) !== BASE ? `<small class="muted" style="display:block;font-weight:400;font-size:.75rem">≈ ${money(+t.amount)}</small>` : ''}</div></div>`;
 }
 function txList(list, { group = true } = {}) {
@@ -648,7 +653,7 @@ function txList(list, { group = true } = {}) {
   for (const t of list) {
     if (t.date !== cur) {
       cur = t.date;
-      const day = list.filter(x => x.date === cur).reduce((s, x) => s + (x.kind === 'entrata' ? +x.amount : x.kind === 'spesa' ? -x.amount : 0), 0);
+      const day = list.filter(x => x.date === cur).reduce((s, x) => s + (x.kind === 'entrata' ? +x.amount : isOut(x) ? -x.amount : 0), 0);
       out += `<div class="txday"><span>${dayLabel(cur)}</span><span class="num">${day ? (day > 0 ? '+' : '−') + money(Math.abs(day)) : ''}</span></div>`;
     }
     out += txRow(t);
@@ -852,7 +857,7 @@ function yearBudget(year) {
   const byCat = {}, byMonth = Array(12).fill(0);
   let other = 0;
   for (const t of S.transactions) {
-    if (t.kind !== 'spesa' || !String(t.date).startsWith(year)) continue;
+    if (!isOut(t) || !String(t.date).startsWith(year)) continue;
     const v = +t.amount || 0, m = +t.date.slice(5, 7) - 1;
     if (bIds.includes(t.categoryId)) { byCat[t.categoryId] = (byCat[t.categoryId] || 0) + v; byMonth[m] += v; }
     else other += v;
@@ -917,7 +922,7 @@ VIEWS.movimenti = () => {
       <div class="field"><label for="f-acc">Conto</label><select class="input" id="f-acc"><option value="">Tutti</option>${accOpts}</select></div>
       <div class="field"><label for="f-cat">Categoria</label><select class="input" id="f-cat"><option value="">Tutte</option>${catOpts}</select></div>
       ${S.properties.length ? `<div class="field"><label for="f-prop">Proprietà</label><select class="input" id="f-prop"><option value="">Tutte</option><option value="-" ${S.ui.fProp === '-' ? 'selected' : ''}>Nessuna proprietà</option>${propsSorted().map(p => `<option value="${esc(p.id)}" ${S.ui.fProp === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>` : ''}
-      <div class="field"><label for="f-kind">Tipo</label><select class="input" id="f-kind"><option value="">Tutti</option><option value="spesa" ${S.ui.fKind === 'spesa' ? 'selected' : ''}>Spese</option><option value="entrata" ${S.ui.fKind === 'entrata' ? 'selected' : ''}>Entrate</option><option value="giroconto" ${S.ui.fKind === 'giroconto' ? 'selected' : ''}>Giroconti</option></select></div>
+      <div class="field"><label for="f-kind">Tipo</label><select class="input" id="f-kind"><option value="">Tutti</option><option value="spesa" ${S.ui.fKind === 'spesa' ? 'selected' : ''}>Spese</option><option value="entrata" ${S.ui.fKind === 'entrata' ? 'selected' : ''}>Entrate</option><option value="giroconto" ${S.ui.fKind === 'giroconto' ? 'selected' : ''}>Giroconti</option><option value="accantonamento" ${S.ui.fKind === 'accantonamento' ? 'selected' : ''}>Accantonamenti</option></select></div>
     </div>
     <label class="check" style="margin-top:10px"><input type="checkbox" id="f-all" ${S.ui.allMonths ? 'checked' : ''}> Cerca in tutti i mesi</label>
   </section>
@@ -932,7 +937,7 @@ function txListFiltered() {
     && (!S.ui.fProp || (S.ui.fProp === '-' ? !propById(t.propertyId) : t.propertyId === S.ui.fProp)));
   if (q) l = l.filter(t => [t.note, cat(t.categoryId)?.name, acc(t.accountId)?.name, String(t.amount).replace('.', ',')].join(' ').toLowerCase().includes(q));
   l = sortTx(l);
-  const inc = l.filter(t => t.kind === 'entrata').reduce((s, t) => s + +t.amount, 0), exp = l.filter(t => t.kind === 'spesa').reduce((s, t) => s + +t.amount, 0);
+  const inc = l.filter(t => t.kind === 'entrata').reduce((s, t) => s + +t.amount, 0), exp = l.filter(isOut).reduce((s, t) => s + +t.amount, 0);
   return `<div class="panel-h"><h2>${l.length} moviment${l.length === 1 ? 'o' : 'i'}</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="pill pos num">+${money(inc)}</span><span class="pill num">−${money(exp)}</span></div></div>${txList(l.slice(0, 400))}${l.length > 400 ? `<p class="muted">Mostrati i primi 400. Restringi i filtri per vedere gli altri.</p>` : ''}`;
 }
 
@@ -945,7 +950,7 @@ function budgetYearView() {
   const year = S.ui.budgetYear, y = yearBudget(year), cats = catsOf('spesa');
   const yb = S.settings.budgetsYear || {}, mb = S.settings.budgets || {};
   const spentAll = {};
-  for (const t of S.transactions) if (t.kind === 'spesa' && String(t.date).startsWith(year)) spentAll[t.categoryId] = (spentAll[t.categoryId] || 0) + (+t.amount || 0);
+  for (const t of S.transactions) if (isOut(t) && String(t.date).startsWith(year)) spentAll[t.categoryId] = (spentAll[t.categoryId] || 0) + (+t.amount || 0);
   const totB = y.yearB, totS = y.spent, left = totB - totS;
   const rows = cats.map(c => {
     const own = +yb[c.id] > 0, b = annualBudget(c.id), s = spentAll[c.id] || 0, r = b ? s / b : 0;
@@ -1021,6 +1026,12 @@ VIEWS.patrimonio = () => {
     ${accs.length ? `<div class="acc-list">${accs.map(a => `<button class="acc" data-act="edit-acc" data-id="${esc(a.id)}"><div class="acc-top"><span class="pill">${esc(ACC_TYPES[a.type] || a.type)}</span><i class="dot" style="background:${esc(accColor(a))}"></i></div><b>${esc(a.name)}</b><span class="v num ${bal[a.id] < 0 ? 'neg' : ''}">${accCur(a.id) !== BASE ? moneyC(balN[a.id] || 0, accCur(a.id)) : money(bal[a.id] || 0)}</span>${accCur(a.id) !== BASE ? `<span class="muted num" style="font-size:.8rem">${rateOf(accCur(a.id)) ? '≈ ' + money(bal[a.id] || 0) : 'Cambio ' + accCur(a.id) + ' mancante'}</span>` : ''}</button>`).join('')}</div>`
       : `<div class="empty"><p>Aggiungi il tuo primo conto: conto corrente, carta, contanti o conto titoli.</p><button class="btn primary" data-act="new-acc">+ Conto</button></div>`}
   </section>
+  ${(() => { const funds = S.accounts.filter(a => a.reserve && !a.archived); if (!funds.length) return ''; const y = todayISO().slice(0, 4);
+    return `<section class="panel"><div class="panel-h"><div><h2>Fondi di accantonamento</h2><span class="muted" style="font-size:.82rem">Soldi messi da parte per spese future, come le tasse dell'anno prossimo</span></div></div>${funds.map(f => {
+      const tin = S.transactions.filter(t => t.kind === 'accantonamento' && t.toAccountId === f.id && String(t.date).startsWith(y));
+      const inY = tin.reduce((s, t) => s + +t.amount, 0), outY = S.transactions.filter(t => t.kind === 'spesa' && t.accountId === f.id && String(t.date).startsWith(y)).reduce((s, t) => s + +t.amount, 0);
+      const cats = [...new Set(tin.map(t => cat(t.categoryId)?.name).filter(Boolean))].join(', ');
+      return `<div class="list-row"><div class="l" style="align-items:flex-start"><i class="dot" style="background:${esc(accColor(f))};margin-top:6px"></i><div style="min-width:0"><b>${esc(f.name)}</b><small class="muted" style="display:block">${y}: accantonati ${money0(inY)}${cats ? ' (' + esc(cats) + ')' : ''} · usati ${money0(outY)}</small></div></div><b class="num">${money(bal[f.id] || 0)}</b></div>`; }).join('')}</section>`; })()}
   <section class="panel"><div class="panel-h"><h2>Portafoglio investimenti</h2>
     <div style="display:flex;gap:8px;flex-wrap:wrap"><span class="pill num">Valore ${money(inv)}</span><span class="pill num ${inv - cost >= 0 ? 'pos' : 'neg'}">${inv - cost >= 0 ? '+' : '−'}${money(Math.abs(inv - cost))} (${pct(cost ? (inv - cost) / cost : NaN)})</span></div></div>
     ${hs.length ? `<div class="tbl-wrap"><table><thead><tr><th>Titolo</th><th>Classe</th><th class="r">Quantità</th><th class="r">Prezzo medio</th><th class="r">Prezzo attuale</th><th class="r">Valore</th><th class="r">P/L</th><th class="r">Peso</th></tr></thead><tbody>
@@ -1034,7 +1045,7 @@ VIEWS.obiettivi = () => {
   const today = todayISO();
   const goals = [...S.goals].sort((a, b) => (a.deadline || '9999').localeCompare(b.deadline || '9999'));
   const rec = [...S.recurring].sort((a, b) => (a.active === false) - (b.active === false) || (a.nextDate || '').localeCompare(b.nextDate || ''));
-  const monthlyOut = rec.filter(r => r.active !== false && r.kind === 'spesa').reduce((s, r) => s + (+r.amount) * (FREQ_M[r.frequency] || 1), 0);
+  const monthlyOut = rec.filter(r => r.active !== false && (r.kind === 'spesa' || r.kind === 'accantonamento')).reduce((s, r) => s + (+r.amount) * (FREQ_M[r.frequency] || 1), 0);
   const monthlyIn = rec.filter(r => r.active !== false && r.kind === 'entrata').reduce((s, r) => s + (+r.amount) * (FREQ_M[r.frequency] || 1), 0);
   return `
   <div class="head"><div><div class="eyebrow">Obiettivi e ricorrenze</div><h1>Pianificazione</h1></div><div class="head-actions"><button class="btn" data-act="new-rec">+ Ricorrenza</button><button class="btn primary" data-act="new-goal">+ Obiettivo</button></div></div>
@@ -1194,7 +1205,7 @@ function openForm(o) {
     const b = e.target.closest('[data-seg]'); if (!b) return;
     form.elements[b.dataset.seg].value = b.dataset.v;
     $$(`[data-seg="${b.dataset.seg}"]`, form).forEach(x => x.setAttribute('aria-pressed', x === b));
-    o.onChange && o.onChange(formValues(form), form);
+    o.onChange && o.onChange(formValues(form), form, { target: { name: b.dataset.seg } });
   });
   form.addEventListener('change', e => { if (e.target.type === 'radio') $$('[data-swatch]', form).forEach(s => s.style.outline = s.previousElementSibling.checked ? '2px solid var(--fg)' : 'none'); });
   const d = $('#m-del');
@@ -1219,7 +1230,7 @@ function txForm(t, preset) {
   openForm({
     title: isNew ? 'Nuovo movimento' : 'Modifica movimento',
     fields: [
-      { id: 'kind', type: 'seg', label: 'Tipo', value: t.kind, options: [{ v: 'spesa', l: 'Spesa' }, { v: 'entrata', l: 'Entrata' }, { v: 'giroconto', l: 'Giroconto' }] },
+      { id: 'kind', type: 'seg', label: 'Tipo', value: t.kind, options: [{ v: 'spesa', l: 'Spesa' }, { v: 'entrata', l: 'Entrata' }, { v: 'giroconto', l: 'Giroconto' }, { v: 'accantonamento', l: 'Accantona' }] },
       [{ id: 'amount', label: 'Importo', num: true, value: t.amount != null ? txOrig(t) : '', placeholder: '0,00', required: true }, { id: 'currency', label: 'Valuta', type: 'select', value: t.currency || accCur(t.accountId), options: curOptions() }],
       [{ id: 'date', label: 'Data', type: 'date', value: t.date, required: true }, { id: 'rate', label: 'Cambio', num: true, value: t.rate && txCur(t) !== BASE ? +(+t.rate).toFixed(6) : '', hint: '' }],
       { id: 'note', label: 'Descrizione', value: t.note || '', placeholder: 'Es. Spesa Esselunga' },
@@ -1242,11 +1253,19 @@ function txForm(t, preset) {
         const known = rateOf(v.currency); fill(known, known ? 'ultimo cambio noto' : (FX_ONLINE ? '' : 'inserisci il cambio'));
         if (FX_ONLINE) { const cur = v.currency, d = v.date; fxFetch(cur, d).then(r => { if (r && form.isConnected && form.elements.currency.value === cur) fill(r.rate, 'cambio BCE del ' + dShort(r.date)); }); }
       } else updHint('');
-      showField(form, 'toAccountId', g); showField(form, 'categoryId', !g); showField(form, 'propertyId', !g);
-      form.querySelector('[data-f="accountId"] label').textContent = g ? 'Dal conto' : 'Conto';
+      const ac = v.kind === 'accantonamento';
+      showField(form, 'toAccountId', g || ac); showField(form, 'categoryId', !g); showField(form, 'propertyId', !g && !ac);
+      form.querySelector('[data-f="accountId"] label').textContent = g || ac ? 'Dal conto' : 'Conto';
+      form.querySelector('[data-f="toAccountId"] label').textContent = ac ? 'Nel fondo' : 'Verso il conto';
+      if (ac && ev && ev.target && ev.target.name === 'kind') {
+        const fund = S.accounts.find(a => a.reserve && !a.archived && a.id !== v.accountId); if (fund) form.elements.toAccountId.value = fund.id;
+        setTimeout(() => { const cs2 = form.elements.categoryId, tx = guessCat(/tasse|impost|tribut/i); if (tx && [...cs2.options].some(o => o.value === tx)) cs2.value = tx; }, 0);
+        if (!form.querySelector('[data-f="kind"] small')) form.querySelector('[data-f="kind"]').appendChild(Object.assign(document.createElement('small'), { className: 'muted', textContent: 'Sposta i soldi in un fondo (es. per le tasse) e li conta come spesa di questo mese.' }));
+      }
+      const kh = form.querySelector('[data-f="kind"] small'); if (kh) kh.hidden = !ac;
       const sel = form.elements.categoryId, keep = sel.value || t.categoryId;
       if (!g && sel.dataset.kind !== v.kind) {
-        const opts = catOptions(v.kind);
+        const opts = catOptions(v.kind === 'accantonamento' ? 'spesa' : v.kind);
         sel.innerHTML = opts.map(o => `<option value="${esc(o.v)}">${esc(o.l)}</option>`).join('') || '<option value="">Nessuna categoria</option>';
         if (opts.some(o => o.v === keep)) sel.value = keep;
         sel.dataset.kind = v.kind;
@@ -1257,12 +1276,13 @@ function txForm(t, preset) {
       if (!(a > 0)) return 'Inserisci un importo maggiore di zero.';
       if (v.currency !== BASE && !(parseNum(v.rate) > 0)) return `Inserisci il cambio: quanti euro vale 1 ${v.currency}.`;
       if (!v.date) return 'Inserisci la data.';
-      if (v.kind === 'giroconto' && v.accountId === v.toAccountId) return 'Scegli due conti diversi per il giroconto.';
+      if ((v.kind === 'giroconto' || v.kind === 'accantonamento') && v.accountId === v.toAccountId) return v.kind === 'giroconto' ? 'Scegli due conti diversi per il giroconto.' : 'Scegli un fondo diverso dal conto di partenza.';
+      if (v.kind === 'accantonamento' && !v.categoryId) return 'Scegli la categoria della spesa futura (es. Tasse).';
     },
     async onSubmit(v) {
       const orig = Math.round(parseNum(v.amount) * 100) / 100, rate = v.currency === BASE ? 1 : parseNum(v.rate);
       const doc = { kind: v.kind, amount: Math.round(orig * rate * 100) / 100, date: v.date, note: v.note.trim(), accountId: v.accountId, createdAt: t.createdAt || Date.now() };
-      if (v.kind === 'giroconto') doc.toAccountId = v.toAccountId; else { doc.categoryId = v.categoryId || ''; if (v.propertyId) doc.propertyId = v.propertyId; }
+      if (v.kind === 'giroconto') doc.toAccountId = v.toAccountId; else if (v.kind === 'accantonamento') { doc.toAccountId = v.toAccountId; doc.categoryId = v.categoryId || ''; } else { doc.categoryId = v.categoryId || ''; if (v.propertyId) doc.propertyId = v.propertyId; }
       if (v.currency !== BASE) { doc.currency = v.currency; doc.origAmount = orig; doc.rate = rate; }
       if (t.importKey) doc.importKey = t.importKey;
       if (t.demo) doc.demo = true;
@@ -1283,12 +1303,13 @@ function accForm(a) {
       { id: 'name', label: 'Nome', value: a.name || '', placeholder: 'Es. Conto Intesa', required: true },
       [{ id: 'type', label: 'Tipo', type: 'select', value: a.type, options: Object.entries(ACC_TYPES).map(([v, l]) => ({ v, l })) }, { id: 'openingBalance', label: 'Saldo iniziale', num: true, value: a.openingBalance ?? 0, hint: 'Nella valuta del conto, prima del primo movimento registrato' }],
       { id: 'currency', label: 'Valuta del conto', type: 'select', value: a.currency || BASE, options: curOptions() },
+      { id: 'reserve', label: 'Fondo di accantonamento: le spese pagate da questo conto sono già state contate quando hai accantonato, quindi non contano di nuovo come uscite', type: 'checkbox', value: !!a.reserve },
       { id: 'color', label: 'Colore', type: 'color', value: a.color, palette: MACARON },
       ...(isNew ? [] : [{ id: 'archived', label: 'Archiviato (nascosto dagli elenchi, il saldo resta nel patrimonio)', type: 'checkbox', value: !!a.archived }])
     ],
     validate: v => !v.name.trim() ? 'Dai un nome al conto.' : isNaN(parseNum(v.openingBalance || '0')) ? 'Il saldo iniziale non è un numero valido.' : '',
     async onSubmit(v) {
-      const doc = { ...strip(a), name: v.name.trim(), type: v.type, currency: v.currency || BASE, openingBalance: parseNum(v.openingBalance || '0') || 0, color: v.color || a.color, archived: !!v.archived };
+      const doc = { ...strip(a), name: v.name.trim(), type: v.type, currency: v.currency || BASE, reserve: !!v.reserve, openingBalance: parseNum(v.openingBalance || '0') || 0, color: v.color || a.color, archived: !!v.archived };
       const ok = await put('accounts', a.id || uid(), doc); ok && toast(isNew ? 'Conto creato' : 'Conto aggiornato'); return ok;
     },
     deleteLabel: used ? 'Elimina (ha movimenti)' : 'Elimina',
@@ -1363,26 +1384,28 @@ function recForm(r) {
   openForm({
     title: isNew ? 'Nuova ricorrenza' : 'Modifica ricorrenza',
     fields: [
-      { id: 'kind', type: 'seg', label: 'Tipo', value: r.kind, options: [{ v: 'spesa', l: 'Spesa' }, { v: 'entrata', l: 'Entrata' }] },
+      { id: 'kind', type: 'seg', label: 'Tipo', value: r.kind, options: [{ v: 'spesa', l: 'Spesa' }, { v: 'entrata', l: 'Entrata' }, { v: 'accantonamento', l: 'Accantona' }] },
       { id: 'name', label: 'Nome', value: r.name || '', placeholder: 'Es. Netflix, Affitto, Stipendio', required: true },
       [{ id: 'amount', label: 'Importo (€)', num: true, value: r.amount ?? '', required: true }, { id: 'frequency', label: 'Frequenza', type: 'select', value: r.frequency, options: Object.entries(FREQ).map(([v, l]) => ({ v, l })) }],
       [{ id: 'nextDate', label: 'Prossima data', type: 'date', value: r.nextDate, required: true }, { id: 'accountId', label: 'Conto', type: 'select', value: r.accountId, options: accs.length ? accs : [{ v: '', l: '—' }] }],
+      { id: 'toAccountId', label: 'Nel fondo', type: 'select', value: r.toAccountId || (S.accounts.find(a => a.reserve)?.id || accs[0]?.v || ''), options: accs.length ? accs : [{ v: '', l: '—' }] },
       { id: 'categoryId', label: 'Categoria', type: 'select', value: r.categoryId || '', options: [{ v: '', l: '—' }] },
       ...(S.properties.length ? [{ id: 'propertyId', label: 'Proprietà', type: 'select', value: r.propertyId || '', options: [{ v: '', l: '— nessuna —' }, ...propOptions()] }] : []),
       { id: 'active', label: 'Attiva', type: 'checkbox', value: r.active !== false }
     ],
     onChange(v, form) {
+      showField(form, 'toAccountId', v.kind === 'accantonamento'); showField(form, 'propertyId', v.kind !== 'accantonamento');
       const sel = form.elements.categoryId, keep = sel.value || r.categoryId;
-      if (sel.dataset.kind !== v.kind) { const opts = catOptions(v.kind); sel.innerHTML = opts.map(o => `<option value="${esc(o.v)}">${esc(o.l)}</option>`).join(''); if (opts.some(o => o.v === keep)) sel.value = keep; sel.dataset.kind = v.kind; }
+      if (sel.dataset.kind !== v.kind) { const opts = catOptions(v.kind === 'accantonamento' ? 'spesa' : v.kind); sel.innerHTML = opts.map(o => `<option value="${esc(o.v)}">${esc(o.l)}</option>`).join(''); if (opts.some(o => o.v === keep)) sel.value = keep; sel.dataset.kind = v.kind; }
     },
     validate: v => !v.name.trim() ? 'Dai un nome alla ricorrenza.' : !(parseNum(v.amount) > 0) ? 'Inserisci un importo maggiore di zero.' : !v.nextDate ? 'Inserisci la prossima data.' : '',
-    async onSubmit(v) { const ok = await put('recurring', r.id || uid(), { ...strip(r), kind: v.kind, name: v.name.trim(), amount: parseNum(v.amount), frequency: v.frequency, nextDate: v.nextDate, accountId: v.accountId, categoryId: v.categoryId, propertyId: v.propertyId || '', active: !!v.active }); ok && toast('Ricorrenza salvata'); return ok; },
+    async onSubmit(v) { const ok = await put('recurring', r.id || uid(), { ...strip(r), kind: v.kind, name: v.name.trim(), amount: parseNum(v.amount), frequency: v.frequency, nextDate: v.nextDate, accountId: v.accountId, toAccountId: v.kind === 'accantonamento' ? v.toAccountId : '', categoryId: v.categoryId, propertyId: v.propertyId || '', active: !!v.active }); ok && toast('Ricorrenza salvata'); return ok; },
     onDelete: isNew ? null : async () => { const ok = await del('recurring', r.id); ok && toast('Ricorrenza eliminata'); return ok; }
   });
 }
 async function recPost(r) {
   if (!acc(r.accountId)) { toast('Assegna un conto a questa ricorrenza prima di registrarla.', true); return; }
-  const ok = await put('transactions', uid(), { kind: r.kind, amount: +r.amount, date: r.nextDate, note: r.name, accountId: r.accountId, categoryId: r.categoryId || '', ...(r.propertyId ? { propertyId: r.propertyId } : {}), recurringId: r.id, createdAt: Date.now(), ...(r.demo ? { demo: true } : {}) });
+  const ok = await put('transactions', uid(), { kind: r.kind, amount: +r.amount, date: r.nextDate, note: r.name, accountId: r.accountId, categoryId: r.categoryId || '', ...(r.kind === 'accantonamento' && r.toAccountId ? { toAccountId: r.toAccountId } : {}), ...(r.propertyId ? { propertyId: r.propertyId } : {}), recurringId: r.id, createdAt: Date.now(), ...(r.demo ? { demo: true } : {}) });
   if (ok && await put('recurring', r.id, { ...strip(r), nextDate: nextDate(r.nextDate, r.frequency) })) toast(`Registrato: ${r.name} ${money(+r.amount)}`);
 }
 function ruleForm() {
@@ -1536,7 +1559,7 @@ function download(filename, text, mime) {
 function exportCSV() {
   const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
   const lines = [['Data', 'Tipo', 'Importo', 'Conto', 'Verso conto', 'Categoria', 'Descrizione'].join(';')];
-  for (const t of sortTx(S.transactions).reverse()) lines.push([t.date, t.kind, (t.kind === 'spesa' ? -t.amount : +t.amount).toFixed(2).replace('.', ','), q(acc(t.accountId)?.name), q(acc(t.toAccountId)?.name || ''), q(cat(t.categoryId)?.name || ''), q(t.note)].join(';'));
+  for (const t of sortTx(S.transactions).reverse()) lines.push([t.date, t.kind, ((t.kind === 'spesa' || t.kind === 'accantonamento') ? -t.amount : +t.amount).toFixed(2).replace('.', ','), q(acc(t.accountId)?.name), q(acc(t.toAccountId)?.name || ''), q(cat(t.categoryId)?.name || ''), q(t.note)].join(';'));
   download(`movimenti-${todayISO()}.csv`, '﻿' + lines.join('\r\n'), 'text/csv;charset=utf-8');
 }
 function backup() {
