@@ -698,7 +698,7 @@ VIEWS.panoramica = () => {
     <div class="head-actions"><div class="month-nav"><button class="icon-btn" data-act="year" data-d="-1" aria-label="Anno precedente">‹</button><span>${y}</span><button class="icon-btn" data-act="year" data-d="1" aria-label="Anno successivo">›</button></div><button class="btn primary hide-m" data-act="new-tx">+ Movimento</button></div></div>
   ${(() => { const yt = yearTotals(y), sameP = y === todayISO().slice(0, 4), prev = yearTotals(String(+y - 1), sameP ? todayISO().slice(5) : ''); return `<section class="kpis">
     <div class="kpi"><span class="eyebrow">Entrate ${y}</span><span class="v num pos">${money0(yt.inc)}</span><span class="s">${prev.inc ? `${yt.inc >= prev.inc ? '▲' : '▼'} ${pct(Math.abs(yt.inc - prev.inc) / prev.inc)} vs ${sameP ? 'stesso periodo ' : ''}${+y - 1}` : 'Totale dell\'anno'}</span></div>
-    <div class="kpi"><span class="eyebrow">Uscite ${y}</span><span class="v num">${money0(yt.out)}</span><span class="s">Tutte le categorie, accantonamenti inclusi</span></div>
+    <div class="kpi"><span class="eyebrow">Uscite ${y}</span><span class="v num neg">${money0(yt.out)}</span><span class="s">Tutte le categorie, accantonamenti inclusi</span></div>
     <div class="kpi"><span class="eyebrow">Risparmio ${y}</span><span class="v num ${yt.net < 0 ? 'neg' : ''}">${money0(yt.net)}</span><span class="s">Entrate meno uscite</span></div>
     <div class="kpi"><span class="eyebrow">Tasso di risparmio</span><span class="v num">${pct(yt.rate)}</span><span class="s">Quota delle entrate risparmiata</span></div>
   </section>`; })()}
@@ -880,7 +880,7 @@ function yearBudgetPanel(year) {
     : `<div class="kpi"><span class="eyebrow">Utilizzo del budget</span><span class="v num ${y.spent > y.yearB ? 'neg' : ''}">${pct(y.spent / y.yearB)}</span><span class="s">Budget annuo ${money0(y.yearB)}</span></div>`;
   return `<section class="panel">${head}
     <div class="kpis" style="margin-bottom:16px">
-      <div class="kpi"><span class="eyebrow">Speso nel ${year}</span><span class="v num">${money0(y.spent)}</span><span class="s">Solo categorie con budget</span></div>
+      <div class="kpi"><span class="eyebrow">Speso nel ${year}</span><span class="v num neg">${money0(y.spent)}</span><span class="s">Solo categorie con budget</span></div>
       <div class="kpi"><span class="eyebrow">Budget a oggi</span><span class="v num">${money0(y.ytdB)}</span><span class="s">${y.elapsed} mes${y.elapsed === 1 ? 'e' : 'i'} × ${money0(y.monthlyB)}</span></div>
       <div class="kpi"><span class="eyebrow">${diff >= 0 ? 'Sotto budget' : 'Sopra budget'}</span><span class="v num ${diff >= 0 ? 'pos' : 'neg'}">${money0(Math.abs(diff))}</span><span class="s">${pct(y.spent / y.ytdB)} del budget usato</span></div>
       ${projTile}
@@ -971,7 +971,7 @@ function budgetYearView() {
   ${(() => { const yt = yearTotals(year); return `<section class="kpis k5">
     <div class="kpi"><span class="eyebrow">Entrate ${year}</span><span class="v num pos">${money0(yt.inc)}</span><span class="s">${totB ? (yt.inc - totB >= 0 ? 'Margine dopo il budget ' + money0(yt.inc - totB) : 'Il budget supera le entrate di ' + money0(totB - yt.inc)) : 'Totale entrate dell\'anno'}</span></div>`; })()}
     <div class="kpi"><span class="eyebrow">Budget annuale</span><span class="v num">${money0(totB)}</span><span class="s">${money0(totB / 12)} al mese in media</span></div>
-    <div class="kpi"><span class="eyebrow">Speso nel ${year}</span><span class="v num">${money0(totS)}</span><span class="s">${totB ? pct(totS / totB) + ' del budget annuale' : 'Imposta un budget'}</span></div>
+    <div class="kpi"><span class="eyebrow">Speso nel ${year}</span><span class="v num neg">${money0(totS)}</span><span class="s">${totB ? pct(totS / totB) + ' del budget annuale' : 'Imposta un budget'}</span></div>
     <div class="kpi"><span class="eyebrow">Disponibile</span><span class="v num ${left < 0 ? 'neg' : 'pos'}">${money0(left)}</span><span class="s">${y.isCur ? `${12 - y.elapsed} mes${12 - y.elapsed === 1 ? 'e' : 'i'} dopo questo · ${money0(Math.max(0, left) / Math.max(1, 13 - y.elapsed))}/mese` : (y.elapsed ? 'Anno chiuso' : 'Anno non iniziato')}</span></div>
     <div class="kpi"><span class="eyebrow">Proiezione a fine anno</span><span class="v num ${totB && y.proj > totB ? 'neg' : ''}">${y.isCur ? money0(y.proj) : money0(totS)}</span><span class="s">${y.isCur ? 'Al ritmo di spesa attuale' : 'Spesa effettiva'}</span></div>
   </section>
@@ -1001,7 +1001,7 @@ VIEWS.budget = () => {
   <section class="kpis k5">
     <div class="kpi"><span class="eyebrow">Entrate del mese</span><span class="v num pos">${money0(st.inc)}</span><span class="s">${totB ? (st.inc - totB >= 0 ? 'Margine dopo il budget ' + money0(st.inc - totB) : 'Il budget supera le entrate di ' + money0(totB - st.inc)) : 'Totale entrate registrate'}</span></div>
     <div class="kpi"><span class="eyebrow">Budget totale</span><span class="v num">${money0(totB)}</span><span class="s">Valido per ogni mese</span></div>
-    <div class="kpi"><span class="eyebrow">Speso</span><span class="v num">${money0(totS)}</span><span class="s">${totB ? pct(totS / totB) + ' del budget' : 'Imposta un budget per categoria'}</span></div>
+    <div class="kpi"><span class="eyebrow">Speso</span><span class="v num neg">${money0(totS)}</span><span class="s">${totB ? pct(totS / totB) + ' del budget' : 'Imposta un budget per categoria'}</span></div>
     <div class="kpi"><span class="eyebrow">Disponibile</span><span class="v num ${totB - totS < 0 ? 'neg' : 'pos'}">${money0(totB - totS)}</span><span class="s">${isCur ? (dim - dayN) + ' giorni rimasti' : 'Mese chiuso'}</span></div>
     <div class="kpi"><span class="eyebrow">Proiezione fine mese</span><span class="v num ${totB && projected > totB ? 'neg' : ''}">${money0(projected)}</span><span class="s">${isCur ? 'Al ritmo di spesa attuale' : 'Spesa effettiva'}</span></div>
   </section>
