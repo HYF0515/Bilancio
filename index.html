@@ -331,6 +331,8 @@ const CURRENCIES = { EUR: 'Euro', USD: 'Dollaro USA', GBP: 'Sterlina britannica'
 const curOptions = () => Object.entries(CURRENCIES).map(([v, l]) => ({ v, l: v + ' · ' + l }));
 const _cf = {};
 const moneyC = (v, cur = BASE, dec) => { const k = cur + '|' + dec; if (!_cf[k]) { try { _cf[k] = new Intl.NumberFormat('it-IT', { style: 'currency', currency: cur, ...(dec === 0 ? { maximumFractionDigits: 0 } : {}) }); } catch (e) { _cf[k] = { format: x => (+x).toFixed(2) + ' ' + cur }; } } return _cf[k].format(v || 0); };
+const OLD2MAC = Object.fromEntries(PALETTE.map((c, i) => [c, MACARON[i % MACARON.length]]));
+const accColor = a => OLD2MAC[a?.color] || a?.color || '#E3E5EC';
 const accCur = id => acc(id)?.currency || BASE;
 const txCur = t => t.currency || BASE;
 const txOrig = t => t.origAmount != null ? +t.origAmount : +t.amount;
@@ -977,7 +979,7 @@ VIEWS.patrimonio = () => {
     <div class="alloc">${alloc.map(x => `<i style="flex:${x.v};background:${x.c}" title="${esc(x.k)}"></i>`).join('') || '<i style="flex:1;background:var(--surface-2)"></i>'}</div>
     <div class="legend">${alloc.map(x => `<span><i class="dot" style="background:${x.c}"></i>${esc(x.k)} <b class="num">${pct(x.v / allocT)}</b> <span class="muted num">${money0(x.v)}</span></span>`).join('')}</div></section>
   <section class="panel"><div class="panel-h"><h2>Conti</h2><span class="muted num">Totale ${money(liquid)}</span></div>
-    ${accs.length ? `<div class="acc-list">${accs.map(a => `<button class="acc" data-act="edit-acc" data-id="${esc(a.id)}"><div class="acc-top"><span class="pill">${esc(ACC_TYPES[a.type] || a.type)}</span><i class="dot" style="background:${esc(a.color || '#999')}"></i></div><b>${esc(a.name)}</b><span class="v num ${bal[a.id] < 0 ? 'neg' : ''}">${accCur(a.id) !== BASE ? moneyC(balN[a.id] || 0, accCur(a.id)) : money(bal[a.id] || 0)}</span>${accCur(a.id) !== BASE ? `<span class="muted num" style="font-size:.8rem">${rateOf(accCur(a.id)) ? '≈ ' + money(bal[a.id] || 0) : 'Cambio ' + accCur(a.id) + ' mancante'}</span>` : ''}</button>`).join('')}</div>`
+    ${accs.length ? `<div class="acc-list">${accs.map(a => `<button class="acc" data-act="edit-acc" data-id="${esc(a.id)}"><div class="acc-top"><span class="pill">${esc(ACC_TYPES[a.type] || a.type)}</span><i class="dot" style="background:${esc(accColor(a))}"></i></div><b>${esc(a.name)}</b><span class="v num ${bal[a.id] < 0 ? 'neg' : ''}">${accCur(a.id) !== BASE ? moneyC(balN[a.id] || 0, accCur(a.id)) : money(bal[a.id] || 0)}</span>${accCur(a.id) !== BASE ? `<span class="muted num" style="font-size:.8rem">${rateOf(accCur(a.id)) ? '≈ ' + money(bal[a.id] || 0) : 'Cambio ' + accCur(a.id) + ' mancante'}</span>` : ''}</button>`).join('')}</div>`
       : `<div class="empty"><p>Aggiungi il tuo primo conto: conto corrente, carta, contanti o conto titoli.</p><button class="btn primary" data-act="new-acc">+ Conto</button></div>`}
   </section>
   <section class="panel"><div class="panel-h"><h2>Portafoglio investimenti</h2>
@@ -1023,7 +1025,7 @@ VIEWS.impostazioni = () => {
   <div class="head"><div><div class="eyebrow">Impostazioni</div><h1>Conti, categorie e dati</h1></div></div>
   <div class="grid g-2">
     <section class="panel"><div class="panel-h"><h2>Conti</h2><button class="btn small" data-act="new-acc">+ Conto</button></div>
-      ${S.accounts.length ? [...S.accounts].sort((a, b) => !!a.archived - !!b.archived || a.name.localeCompare(b.name)).map(a => `<div class="list-row"><div class="l"><i class="dot" style="background:${esc(a.color || '#999')}"></i><span>${esc(a.name)}</span>${a.archived ? '<span class="pill">Archiviato</span>' : ''}</div><button class="btn small ghost" data-act="edit-acc" data-id="${esc(a.id)}">Modifica</button></div>`).join('') : '<p class="muted">Nessun conto.</p>'}
+      ${S.accounts.length ? [...S.accounts].sort((a, b) => !!a.archived - !!b.archived || a.name.localeCompare(b.name)).map(a => `<div class="list-row"><div class="l"><i class="dot" style="background:${esc(accColor(a))}"></i><span>${esc(a.name)}</span>${a.archived ? '<span class="pill">Archiviato</span>' : ''}</div><button class="btn small ghost" data-act="edit-acc" data-id="${esc(a.id)}">Modifica</button></div>`).join('') : '<p class="muted">Nessun conto.</p>'}
     </section>
     <section class="panel"><div class="panel-h"><h2>Categorie</h2><button class="btn small" data-act="new-cat">+ Categoria</button></div>
       ${['spesa', 'entrata'].map(k => `<h3 style="margin:6px 0">${k === 'spesa' ? 'Spese' : 'Entrate'}</h3><div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">${catsOf(k).map(c => `<button class="pill" style="border:0;cursor:pointer" data-act="edit-cat" data-id="${esc(c.id)}"><i class="dot" style="background:${esc(c.color)}"></i>${esc(c.name)}</button>`).join('') || '<span class="muted">Nessuna</span>'}</div>`).join('')}
@@ -1234,7 +1236,7 @@ function txForm(t, preset) {
   });
 }
 function accForm(a) {
-  const isNew = !a; a = a || { type: 'conto', color: PALETTE[S.accounts.length % PALETTE.length], openingBalance: 0 };
+  const isNew = !a; a = a || { type: 'conto', color: MACARON[(S.accounts.length + 5) % MACARON.length], openingBalance: 0 };
   const used = a.id && S.transactions.some(t => t.accountId === a.id || t.toAccountId === a.id);
   openForm({
     title: isNew ? 'Nuovo conto' : 'Modifica conto',
@@ -1242,7 +1244,7 @@ function accForm(a) {
       { id: 'name', label: 'Nome', value: a.name || '', placeholder: 'Es. Conto Intesa', required: true },
       [{ id: 'type', label: 'Tipo', type: 'select', value: a.type, options: Object.entries(ACC_TYPES).map(([v, l]) => ({ v, l })) }, { id: 'openingBalance', label: 'Saldo iniziale', num: true, value: a.openingBalance ?? 0, hint: 'Nella valuta del conto, prima del primo movimento registrato' }],
       { id: 'currency', label: 'Valuta del conto', type: 'select', value: a.currency || BASE, options: curOptions() },
-      { id: 'color', label: 'Colore', type: 'color', value: a.color },
+      { id: 'color', label: 'Colore', type: 'color', value: a.color, palette: MACARON },
       ...(isNew ? [] : [{ id: 'archived', label: 'Archiviato (nascosto dagli elenchi, il saldo resta nel patrimonio)', type: 'checkbox', value: !!a.archived }])
     ],
     validate: v => !v.name.trim() ? 'Dai un nome al conto.' : isNaN(parseNum(v.openingBalance || '0')) ? 'Il saldo iniziale non è un numero valido.' : '',
