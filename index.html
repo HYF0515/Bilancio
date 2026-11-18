@@ -90,6 +90,7 @@ h1{font-size:1.75rem;font-weight:700} h2{font-size:1.1rem;font-weight:700} h3{fo
 .g-2{grid-template-columns:repeat(2,minmax(0,1fr))}
 .g-3-1{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
 .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.kpis.k5{grid-template-columns:repeat(5,minmax(0,1fr))}
 .kpi{background:var(--surface);padding:16px 18px;display:flex;flex-direction:column;gap:4px;min-width:0}
 .kpi .v{font-family:var(--f-display);font-size:1.55rem;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .kpi .s{font-size:.8rem;color:var(--muted)}
@@ -213,6 +214,8 @@ body.locked .app{grid-template-columns:minmax(0,1fr)}
 @media (max-width:980px){
   .g-3-1,.g-2{grid-template-columns:minmax(0,1fr)}
   .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .kpis.k5{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .kpis.k5 .kpi:first-child{grid-column:1/-1}
   .filters{grid-template-columns:1fr 1fr}
   .filters .field:first-child{grid-column:1/-1}
 }
@@ -415,6 +418,15 @@ const sumObj = o => Object.values(o).reduce((a, b) => a + b, 0);
 const holdingValue = h => (+h.quantity || 0) * (+h.price || 0);
 const holdingCost = h => (+h.quantity || 0) * (+h.avgCost || 0);
 const investTotal = () => S.holdings.reduce((a, h) => a + holdingValue(h), 0);
+function yearTotals(year, upToMD) {
+  let inc = 0, out = 0;
+  for (const t of S.transactions) {
+    if (!String(t.date).startsWith(year)) continue;
+    if (upToMD && String(t.date).slice(5) > upToMD) continue;
+    if (t.kind === 'entrata') inc += +t.amount || 0; else if (isOut(t)) out += +t.amount || 0;
+  }
+  return { inc, out, net: inc - out, rate: inc > 0 ? (inc - out) / inc : NaN };
+}
 function monthStats(ym) {
   let inc = 0, exp = 0; const byCat = {};
   for (const t of S.transactions) {
@@ -704,6 +716,12 @@ VIEWS.panoramica = () => {
   return `
   <div class="head"><div><div class="eyebrow">Panoramica</div><h1>Anno ${y}</h1></div>
     <div class="head-actions"><div class="month-nav"><button class="icon-btn" data-act="year" data-d="-1" aria-label="Anno precedente">‹</button><span>${y}</span><button class="icon-btn" data-act="year" data-d="1" aria-label="Anno successivo">›</button></div><button class="btn primary hide-m" data-act="new-tx">+ Movimento</button></div></div>
+  ${(() => { const yt = yearTotals(y), sameP = y === todayISO().slice(0, 4), prev = yearTotals(String(+y - 1), sameP ? todayISO().slice(5) : ''); return `<section class="kpis">
+    <div class="kpi"><span class="eyebrow">Entrate ${y}</span><span class="v num pos">${money0(yt.inc)}</span><span class="s">${prev.inc ? `${yt.inc >= prev.inc ? '▲' : '▼'} ${pct(Math.abs(yt.inc - prev.inc) / prev.inc)} vs ${sameP ? 'stesso periodo ' : ''}${+y - 1}` : 'Totale dell\'anno'}</span></div>
+    <div class="kpi"><span class="eyebrow">Uscite ${y}</span><span class="v num">${money0(yt.out)}</span><span class="s">Tutte le categorie, accantonamenti inclusi</span></div>
+    <div class="kpi"><span class="eyebrow">Risparmio ${y}</span><span class="v num ${yt.net < 0 ? 'neg' : ''}">${money0(yt.net)}</span><span class="s">Entrate meno uscite</span></div>
+    <div class="kpi"><span class="eyebrow">Tasso di risparmio</span><span class="v num">${pct(yt.rate)}</span><span class="s">Quota delle entrate risparmiata</span></div>
+  </section>`; })()}
   ${yearBudgetPanel(y)}`;
 };
 
@@ -965,7 +983,8 @@ function budgetYearView() {
   }).join('');
   return `
   <div class="head"><div><div class="eyebrow">Budget annuale</div><h1>Anno ${year}</h1></div><div class="head-actions">${budgetModeSeg()}<div class="month-nav"><button class="icon-btn" data-act="ykey" data-key="budgetYear" data-d="-1" aria-label="Anno precedente">‹</button><span>${year}</span><button class="icon-btn" data-act="ykey" data-key="budgetYear" data-d="1" aria-label="Anno successivo">›</button></div></div></div>
-  <section class="kpis">
+  ${(() => { const yt = yearTotals(year); return `<section class="kpis k5">
+    <div class="kpi"><span class="eyebrow">Entrate ${year}</span><span class="v num pos">${money0(yt.inc)}</span><span class="s">${totB ? (yt.inc - totB >= 0 ? 'Margine dopo il budget ' + money0(yt.inc - totB) : 'Il budget supera le entrate di ' + money0(totB - yt.inc)) : 'Totale entrate dell\'anno'}</span></div>`; })()}
     <div class="kpi"><span class="eyebrow">Budget annuale</span><span class="v num">${money0(totB)}</span><span class="s">${money0(totB / 12)} al mese in media</span></div>
     <div class="kpi"><span class="eyebrow">Speso nel ${year}</span><span class="v num">${money0(totS)}</span><span class="s">${totB ? pct(totS / totB) + ' del budget annuale' : 'Imposta un budget'}</span></div>
     <div class="kpi"><span class="eyebrow">Disponibile</span><span class="v num ${left < 0 ? 'neg' : 'pos'}">${money0(left)}</span><span class="s">${y.isCur ? `${12 - y.elapsed} mes${12 - y.elapsed === 1 ? 'e' : 'i'} dopo questo · ${money0(Math.max(0, left) / Math.max(1, 13 - y.elapsed))}/mese` : (y.elapsed ? 'Anno chiuso' : 'Anno non iniziato')}</span></div>
@@ -994,7 +1013,8 @@ VIEWS.budget = () => {
   }).join('');
   return `
   <div class="head"><div><div class="eyebrow">Budget mensile</div><h1>${ymLabel(ym)}</h1></div><div class="head-actions">${budgetModeSeg()}${monthNav('budgetMonth')}</div></div>
-  <section class="kpis">
+  <section class="kpis k5">
+    <div class="kpi"><span class="eyebrow">Entrate del mese</span><span class="v num pos">${money0(st.inc)}</span><span class="s">${totB ? (st.inc - totB >= 0 ? 'Margine dopo il budget ' + money0(st.inc - totB) : 'Il budget supera le entrate di ' + money0(totB - st.inc)) : 'Totale entrate registrate'}</span></div>
     <div class="kpi"><span class="eyebrow">Budget totale</span><span class="v num">${money0(totB)}</span><span class="s">Valido per ogni mese</span></div>
     <div class="kpi"><span class="eyebrow">Speso</span><span class="v num">${money0(totS)}</span><span class="s">${totB ? pct(totS / totB) + ' del budget' : 'Imposta un budget per categoria'}</span></div>
     <div class="kpi"><span class="eyebrow">Disponibile</span><span class="v num ${totB - totS < 0 ? 'neg' : 'pos'}">${money0(totB - totS)}</span><span class="s">${isCur ? (dim - dayN) + ' giorni rimasti' : 'Mese chiuso'}</span></div>
