@@ -63,7 +63,9 @@ h1{font-size:1.75rem;font-weight:700} h2{font-size:1.1rem;font-weight:700} h3{fo
 .app{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:100vh}
 .side{position:sticky;top:0;height:100vh;padding:24px 14px;border-right:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;gap:20px}
 .brand{display:flex;align-items:center;gap:10px;padding:0 8px}
-.brand-mark{width:30px;height:30px;border-radius:8px;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font-family:var(--f-display);font-weight:700}
+.brand-mark{width:30px;height:30px;border-radius:8px;background:#FBF7F2;color:#3A3340;display:grid;place-items:center;font-family:'Inter',Arial,sans-serif;font-weight:700;font-size:20px;letter-spacing:-1px;border:1px solid var(--line);line-height:1}
+.brand-mark i{display:inline-block;width:5px;height:5px;border-radius:50%;background:#F7B7C3;margin-left:1px;align-self:end;margin-bottom:8px}
+.brand-mark{grid-auto-flow:column;align-items:center;justify-content:center}
 .brand b{font-family:var(--f-display);font-size:1.05rem}
 .nav{display:flex;flex-direction:column;gap:2px}
 .nav a{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-weight:500}
@@ -229,7 +231,7 @@ body.locked .app{grid-template-columns:minmax(0,1fr)}
 
 <div class="app">
   <aside class="side">
-    <div class="brand"><div class="brand-mark">€</div><b>Bilancio</b></div>
+    <div class="brand"><div class="brand-mark">b<i></i></div><b>Bilancio</b></div>
     <nav class="nav" id="nav" aria-label="Sezioni"></nav>
     <div class="side-foot"><span class="sync" id="sync"><i></i><span>Sincronizzato</span></span><span>Dati privati, visibili solo a te.</span></div>
   </aside>
@@ -1525,7 +1527,7 @@ function getConfig() {
   const c = window.BILANCIO_CONFIG || {}, l = LS.get('bilancio.config', {});
   return { url: (c.supabaseUrl || l.url || '').trim(), key: (c.supabaseKey || l.key || '').trim(), fromFile: !!(c.supabaseUrl && c.supabaseKey) };
 }
-const brandHTML = `<div class="brand"><div class="brand-mark">€</div><b>Bilancio</b></div>`;
+const brandHTML = `<div class="brand"><div class="brand-mark">b<i></i></div><b>Bilancio</b></div>`;
 function setupView() {
   return `<div class="auth">${brandHTML}<h1>Collega il database</h1>
   <p class="muted" style="margin:0">Una sola volta per dispositivo. Trovi i due valori su supabase.com, nel tuo progetto: <b>Project Settings → API</b>.</p>
