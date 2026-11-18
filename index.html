@@ -342,7 +342,7 @@ section.panel.folded>.panel-h{margin-bottom:0}
 .bank-logo.ini{border:0;color:#3A3340;font-weight:700;font-size:.78rem;letter-spacing:.02em}
 .eye-btn{flex:none;color:var(--muted)}
 .eye-btn[aria-pressed="true"]{color:var(--fg)}
-body.hide-summary .privacy .v,body.hide-summary .privacy .s{filter:blur(9px);user-select:none;-webkit-user-select:none;pointer-events:none}
+body.hide-summary .privacy .v,body.hide-summary .privacy .s,body.hide-summary .privacy .tx-amt,body.hide-summary .privacy .txday .num{filter:blur(9px);user-select:none;-webkit-user-select:none;pointer-events:none}
 @media (prefers-reduced-motion: no-preference){ .kpis.privacy .v,.kpis.privacy .s{transition:filter .2s ease} }
 .budget-mode-row{display:flex;justify-content:flex-end}
 .budget-mode-row .seg{min-width:220px}
@@ -401,7 +401,7 @@ html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
 <script>
 (() => {
 "use strict";
-const APP_VERSION = '55';
+const APP_VERSION = '56';
 /* ---------- utilità ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -1002,7 +1002,7 @@ function mortgageStats(pr) {
 }
 VIEWS.proprieta = () => {
   const list = propsSorted(), pr = curProp();
-  if (!pr) return `<div class="head with-nav"><div><div class="eyebrow">Proprietà</div><h1>Le tue proprietà</h1></div></div>
+  if (!pr) return `<div class="head with-nav"><div><div class="eyebrow">Proprietà</div><h1>Le tue proprietà</h1></div><div class="head-actions">${eyeBtn()}</div></div>
     <section class="panel empty"><h2>Aggiungi la tua prima proprietà</h2><p>Per esempio la casa in città o quella al mare. Quando registri una spesa (luce, condominio, rata del mutuo…) potrai scegliere a quale proprietà si riferisce, e qui vedrai mutuo pagato, debito residuo e spese di ciascuna.</p><button class="btn primary" data-act="new-prop">+ Aggiungi proprietà</button></section>`;
   const tabs = `<div class="prop-tabs" role="tablist" aria-label="Proprietà">${list.map(p => `<button class="prop-tab" role="tab" aria-selected="${p.id === pr.id}" data-act="prop-sel" data-id="${esc(p.id)}">${esc(p.name)}</button>`).join('')}<button class="prop-tab add" data-act="new-prop">+ Aggiungi</button></div>`;
   const ms = mortgageStats(pr), year = S.ui.propYear, mcat = pr.mortgage?.categoryId || '';
@@ -1185,7 +1185,7 @@ VIEWS.movimenti = () => {
   const catOpts = ['spesa', 'entrata'].map(k => `<optgroup label="${k === 'spesa' ? 'Spese' : 'Entrate'}">${catsOf(k).map(c => `<option value="${esc(c.id)}" ${S.ui.fCat === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</optgroup>`).join('');
   return `
   <div class="head with-nav"><div><div class="eyebrow">Movimenti</div><h1>${ymLabel(S.ui.month)}</h1></div>
-    <div class="head-actions">${monthNav('month')}<button class="btn primary hide-m" data-act="new-tx">+ Movimento</button></div></div>
+    <div class="head-actions">${eyeBtn()}${monthNav('month')}<button class="btn primary hide-m" data-act="new-tx">+ Movimento</button></div></div>
   <section class="panel">
     <div class="filters">
       <div class="field"><label for="f-q">Cerca</label><input class="input" id="f-q" type="search" placeholder="Descrizione, categoria, importo…" value="${esc(S.ui.q)}"></div>
@@ -1196,7 +1196,7 @@ VIEWS.movimenti = () => {
     </div>
     <label class="check" style="margin-top:10px"><input type="checkbox" id="f-all" ${S.ui.allMonths ? 'checked' : ''}> Cerca in tutti i mesi</label>
   </section>
-  <section class="panel" id="txlist">${txListFiltered()}</section>`;
+  <section class="panel privacy" id="txlist">${txListFiltered()}</section>`;
 };
 function txListFiltered() {
   const q = S.ui.q.trim().toLowerCase();
