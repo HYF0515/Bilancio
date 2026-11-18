@@ -251,7 +251,9 @@ body.locked .app{grid-template-columns:minmax(0,1fr)}
 <div class="toast" id="toast" hidden></div>
 
 <script src="config.js"></script>
-<script src="vendor/supabase.js"></script>
+<script src="vendor/firebase-app-compat.js"></script>
+<script src="vendor/firebase-auth-compat.js"></script>
+<script src="vendor/firebase-firestore-compat.js"></script>
 <script>
 (() => {
 "use strict";
@@ -320,7 +322,7 @@ function nextDate(iso, f) {
 
 /* ---------- stato ---------- */
 const COLS = ['accounts', 'categories', 'transactions', 'holdings', 'goals', 'recurring', 'snapshots', 'properties'];
-const S = { sb: null, user: null, synced: false, status: 'loading', settings: {},
+const S = { fs: null, user: null, synced: false, status: 'loading', settings: {},
   ui: { budgetMode: 'mese', budgetYear: todayISO().slice(0, 4), propId: '', fProp: '', propYear: todayISO().slice(0, 4), year: todayISO().slice(0, 4), month: ymOf(todayISO()), q: '', fAcc: '', fCat: '', fKind: '', budgetMonth: ymOf(todayISO()) } };
 COLS.forEach(c => S[c] = []);
 const byId = (col, id) => S[col].find(x => x.id === id);
@@ -441,103 +443,78 @@ function monthStats(ym) {
   return { inc, exp, net: inc - exp, rate: inc > 0 ? (inc - exp) / inc : NaN, byCat };
 }
 
-/* ---------- archivio: copia locale + coda di sincronizzazione verso Supabase ---------- */
+/* ---------- archivio: Firebase Firestore (tempo reale, funziona anche offline) ---------- */
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* spazio pieno o bloccato */ } },
   del(k) { try { localStorage.removeItem(k); } catch (e) {} }
 };
-const cacheKey = () => 'bilancio.cache.' + S.user.id;
-const outboxKey = () => 'bilancio.outbox.' + S.user.id;
-let outbox = [];
+let netDown = !navigator.onLine, pendingWrites = false;
+const pendingCols = new Set();
+const userCol = col => S.fs.collection('users').doc(S.user.id).collection(col);
+const clean = o => JSON.parse(JSON.stringify(o));
 function snapshotDocs() {
   const docs = {};
   COLS.forEach(c => docs[c] = Object.fromEntries(S[c].map(x => [x.id, strip(x)])));
   docs.settings = { main: S.settings };
   return docs;
 }
-function loadDocs(docs) {
-  COLS.forEach(c => S[c] = Object.entries(docs[c] || {}).map(([id, d]) => ({ ...d, id })));
-  S.settings = (docs.settings && docs.settings.main) || {};
-}
-let cacheT;
-function saveCache() { clearTimeout(cacheT); cacheT = setTimeout(() => LS.set(cacheKey(), snapshotDocs()), 200); }
 function applyLocal(col, id, data) {
   if (col === 'settings') S.settings = data ? { ...data } : {};
   else { const arr = S[col].filter(x => x.id !== id); if (data) arr.push({ ...data, id }); S[col] = arr; }
 }
-function queue(op) {
-  outbox = outbox.filter(o => !(o.col === op.col && o.id === op.id));
-  outbox.push(op); LS.set(outboxKey(), outbox);
-  applyLocal(op.col, op.id, op.op === 'set' ? op.data : null);
-  saveCache(); schedule(); scheduleFlush(30);
+function fbErr(e) {
+  const c = String(e && e.code || '');
+  if (c.includes('permission-denied')) return 'Firebase ha rifiutato l\'operazione: controlla le regole di sicurezza di Firestore.';
+  if (c.includes('resource-exhausted')) return 'Hai raggiunto il limite giornaliero del piano gratuito di Firebase. Riprova domani.';
+  if (c.includes('unavailable')) return 'Firebase non è raggiungibile: le modifiche restano sul dispositivo e partiranno appena torna la connessione.';
+  return 'Operazione non riuscita: ' + (e && e.message || c);
 }
-async function put(col, id, data) { queue({ op: 'set', col, id, data: JSON.parse(JSON.stringify(data)) }); return true; }
-async function del(col, id) { queue({ op: 'del', col, id }); return true; }
+async function put(col, id, data) {
+  if (!S.fs || !S.user) { toast('Non sei collegato al database.', true); return false; }
+  const d = clean(data);
+  applyLocal(col, id, d); schedule();
+  userCol(col).doc(id).set(d).catch(e => toast(fbErr(e), true));
+  return true;
+}
+async function del(col, id) {
+  if (!S.fs || !S.user) return false;
+  applyLocal(col, id, null); schedule();
+  userCol(col).doc(id).delete().catch(e => toast(fbErr(e), true));
+  return true;
+}
 const strip = o => { const { id, ...rest } = o; return rest; };
 async function saveSettings(patch) { return put('settings', 'main', { ...S.settings, ...patch }); }
-
-const isNetErr = e => !navigator.onLine || /fetch|network|load failed|timeout|aborted/i.test(String(e && (e.message || e)));
-let flushT, flushing = false, netDown = false;
-function scheduleFlush(ms) { clearTimeout(flushT); flushT = setTimeout(flush, ms); }
-async function flush() {
-  if (fetching) { scheduleFlush(500); return; }
-  if (flushing || !S.sb || !S.user || !outbox.length) { updateSync(); return; }
-  flushing = true; updateSync();
-  try {
-    while (outbox.length) {
-      const head = outbox[0];
-      let batch, error;
-      if (head.op === 'set') {
-        batch = []; for (const o of outbox) { if (o.op !== 'set' || batch.length >= 500) break; batch.push(o); }
-        ({ error } = await S.sb.from('docs').upsert(batch.map(o => ({ user_id: S.user.id, col: o.col, id: o.id, data: o.data, updated_at: new Date().toISOString() })), { onConflict: 'user_id,col,id' }));
-      } else {
-        batch = [head];
-        ({ error } = await S.sb.from('docs').delete().eq('user_id', S.user.id).eq('col', head.col).eq('id', head.id));
-      }
-      if (error) {
-        if (isNetErr(error)) { netDown = true; scheduleFlush(15000); break; }
-        if (/jwt|token/i.test(error.message || '')) { await S.sb.auth.refreshSession().catch(() => {}); scheduleFlush(3000); break; }
-        toast('Una modifica non è stata salvata sul server: ' + (error.message || 'errore sconosciuto'), true);
-      }
-      netDown = false;
-      const done = new Set(batch);
-      outbox = outbox.filter(o => !done.has(o)); LS.set(outboxKey(), outbox);
-    }
-  } catch (e) { netDown = true; scheduleFlush(15000); }
-  flushing = false; updateSync();
-}
 function updateSync() {
   const el = $('#sync'); if (!el) return;
-  const n = outbox.length;
-  el.className = 'sync' + (netDown ? ' off' : n ? ' wait' : '');
-  el.lastElementChild.textContent = netDown ? `Offline: ${n} modific${n === 1 ? 'a' : 'he'} in attesa` : n ? 'Sincronizzazione…' : 'Sincronizzato';
-  const b = $('#offline-banner'); if (b) b.hidden = !(netDown && n);
+  el.className = 'sync' + (netDown ? ' off' : pendingWrites ? ' wait' : '');
+  el.lastElementChild.textContent = netDown ? (pendingWrites ? 'Offline: modifiche salvate sul dispositivo' : 'Offline') : pendingWrites ? 'Sincronizzazione…' : 'Sincronizzato';
+  const b = $('#offline-banner'); if (b) b.hidden = !(netDown && pendingWrites);
 }
-let fetching = false;
-async function fetchRemote() {
-  fetching = true;
-  try { await fetchRemoteInner(); } finally { fetching = false; }
-}
-async function fetchRemoteInner() {
-  const rows = [];
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await S.sb.from('docs').select('col,id,data').eq('user_id', S.user.id).range(from, from + 999);
-    if (error) throw error;
-    rows.push(...data);
-    if (data.length < 1000) break;
+let unsubs = [];
+function listen() {
+  unsubs.forEach(u => u()); unsubs = [];
+  const fromServer = new Set();
+  for (const col of [...COLS, 'settings']) {
+    unsubs.push(userCol(col).onSnapshot({ includeMetadataChanges: true }, snap => {
+      if (col === 'settings') { const m = snap.docs.find(d => d.id === 'main'); S.settings = m ? { ...m.data() } : {}; }
+      else S[col] = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+      if (snap.metadata.hasPendingWrites) pendingCols.add(col); else pendingCols.delete(col);
+      pendingWrites = pendingCols.size > 0;
+      if (!snap.metadata.fromCache) fromServer.add(col);
+      if (!S.synced && fromServer.size === COLS.length + 1) { S.synced = true; onFirstSync(); }
+      schedule(); updateSync();
+    }, e => toast(fbErr(e), true)));
   }
-  const docs = {};
-  for (const r of rows) (docs[r.col] = docs[r.col] || {})[r.id] = r.data;
-  loadDocs(docs);
-  for (const o of outbox) applyLocal(o.col, o.id, o.op === 'set' ? o.data : null);
-  S.synced = true; netDown = false;
-  saveCache(); schedule(); updateSync();
+}
+function onFirstSync() {
+  if (!S.categories.length) DEFAULT_CATS.forEach(([id, name, kind], i) => put('categories', id, { name, kind, color: MACARON[i % MACARON.length] }));
+  fxRefresh();
 }
 async function refresh() {
-  if (!S.user) return;
-  try { await flush(); await fetchRemote(); }
-  catch (e) { netDown = isNetErr(e); updateSync(); if (!netDown) toast('Non riesco a leggere i dati dal server: ' + (e.message || e), true); }
+  if (!S.fs) return;
+  try { await S.fs.enableNetwork(); } catch (e) {}
+  netDown = !navigator.onLine; updateSync();
 }
 async function pool(items, n, fn, onProg) {
   let i = 0, done = 0, ok = 0;
@@ -637,7 +614,7 @@ function render() {
   }
   const r = route();
   const sx = window.scrollY;
-  v.innerHTML = `<div class="banner" id="offline-banner" ${netDown && outbox.length ? '' : 'hidden'}><div><b>Sei offline.</b> <span class="muted">Le modifiche sono salvate sul telefono e verranno inviate appena torna la connessione.</span></div></div>` + (isDemo() ? demoBanner() : '') + VIEWS[r]();
+  v.innerHTML = `<div class="banner" id="offline-banner" ${netDown && pendingWrites ? '' : 'hidden'}><div><b>Sei offline.</b> <span class="muted">Le modifiche sono salvate sul telefono e verranno inviate appena torna la connessione.</span></div></div>` + (isDemo() ? demoBanner() : '') + VIEWS[r]();
   drawCharts();
   window.scrollTo(0, sx);
 }
@@ -1133,7 +1110,8 @@ VIEWS.impostazioni = () => {
     </section>
     <section class="panel"><div class="panel-h"><h2>Account e sincronizzazione</h2></div>
       <div class="list-row"><div class="l"><span class="muted">Accesso come</span></div><b style="overflow:hidden;text-overflow:ellipsis">${esc(S.user?.email || '')}</b></div>
-      <div class="list-row"><div class="l"><span class="muted">Stato</span></div><span>${netDown ? 'Offline' : outbox.length ? 'Sincronizzazione in corso' : 'Sincronizzato'}${outbox.length ? ` · ${outbox.length} in attesa` : ''}</span></div>
+      <div class="list-row"><div class="l"><span class="muted">Database</span></div><span>Firebase · ${esc(getConfig().projectId || '')}</span></div>
+      <div class="list-row"><div class="l"><span class="muted">Stato</span></div><span>${netDown ? (pendingWrites ? 'Offline · modifiche in attesa' : 'Offline') : pendingWrites ? 'Sincronizzazione in corso' : 'Sincronizzato'}</span></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn" data-act="sync-now">Sincronizza ora</button><button class="btn danger" data-act="logout">Esci</button></div>
     </section>
   </div>`;
@@ -1737,7 +1715,10 @@ document.addEventListener('click', e => {
   if (a === 'sync-now') { refresh().then(() => toast(netDown ? 'Sei offline: riproverò appena torna la connessione.' : 'Dati aggiornati')); return; }
   if (a === 'logout') return logout(t);
   if (a === 'signup') return authSubmit('signup');
-  if (a === 'reset-config') { LS.del('bilancio.config'); location.reload(); }
+  if (a === 'google') return googleLogin();
+  if (a === 'email-login') { const f = $('#auth-form'); if (f) { f.hidden = false; t.hidden = true; } return; }
+  if (a === 'reset-pass') return resetPass();
+  if (a === 'reset-config') { LS.del('bubudex.firebase'); location.reload(); }
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && !$('#modal').hidden) closeModal();
@@ -1787,7 +1768,7 @@ document.addEventListener('submit', e => {
 });
 window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); });
 let rT; window.addEventListener('resize', () => { clearTimeout(rT); rT = setTimeout(() => { drawCharts(); renderNav(); }, 150); });
-window.addEventListener('online', () => { netDown = false; refresh(); });
+window.addEventListener('online', () => { netDown = false; updateSync(); });
 window.addEventListener('offline', () => { netDown = true; updateSync(); schedule(); });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.user) refresh(); });
 
@@ -1799,39 +1780,69 @@ const DEFAULT_CATS = [
   ['c-stip', 'Stipendio', 'entrata'], ['c-bonus', 'Bonus e premi', 'entrata'], ['c-rend', 'Rendite e dividendi', 'entrata'], ['c-rimb', 'Rimborsi', 'entrata'], ['c-altro-e', 'Altro', 'entrata']
 ];
 function getConfig() {
-  const c = window.BILANCIO_CONFIG || {}, l = LS.get('bilancio.config', {});
-  return { url: (c.supabaseUrl || l.url || '').trim(), key: (c.supabaseKey || l.key || '').trim(), fromFile: !!(c.supabaseUrl && c.supabaseKey) };
+  const c = window.BUBUDEX_FIREBASE || {}, l = LS.get('bubudex.firebase', {});
+  const cfg = (c.apiKey && c.projectId) ? c : l;
+  return { ...cfg, fromFile: !!(c.apiKey && c.projectId) };
+}
+// accetta lo snippet copiato dalla console di Firebase (const firebaseConfig = { apiKey: "...", ... };) o un JSON
+function parseFirebaseConfig(txt) {
+  const out = {};
+  for (const k of ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId']) {
+    const m = String(txt).match(new RegExp('["\']?' + k + '["\']?\\s*:\\s*["\']([^"\']+)["\']'));
+    if (m) out[k] = m[1].trim();
+  }
+  return out;
 }
 const brandHTML = `<div class="brand"><div class="brand-mark">b<i></i></div><b>Bubudex</b></div>`;
 function setupView() {
-  return `<div class="auth">${brandHTML}<h1>Collega il database</h1>
-  <p class="muted" style="margin:0">Una sola volta per dispositivo. Trovi i due valori su supabase.com, nel tuo progetto: <b>Project Settings → API</b>.</p>
+  return `<div class="auth">${brandHTML}<h1>Collega Firebase</h1>
+  <p class="muted" style="margin:0">Una sola volta per dispositivo. Nella console di Firebase apri <b>Impostazioni progetto → Generali → Le tue app</b> e copia il blocco <b>firebaseConfig</b>.</p>
   <form id="setup-form" class="panel" style="display:flex;flex-direction:column;gap:14px" novalidate>
-    <div class="field"><label for="cfg-url">Project URL</label><input class="input mono" id="cfg-url" placeholder="https://xxxx.supabase.co" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
-    <div class="field"><label for="cfg-key">Chiave anon / publishable</label><input class="input mono" id="cfg-key" placeholder="eyJhbGciOi… oppure sb_publishable_…" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+    <div class="field"><label for="cfg-snippet">Configurazione Firebase</label><textarea class="input mono" id="cfg-snippet" rows="9" spellcheck="false" autocapitalize="off" placeholder='const firebaseConfig = {
+  apiKey: "AIza…",
+  authDomain: "bubudex-xxxx.firebaseapp.com",
+  projectId: "bubudex-xxxx",
+  appId: "1:…:web:…"
+};'></textarea></div>
     <div class="form-err" id="cfg-err" hidden></div>
     <button class="btn primary" type="submit">Continua</button>
   </form></div>`;
 }
 function setupSubmit() {
-  const url = $('#cfg-url').value.trim().replace(/\/+$/, ''), key = $('#cfg-key').value.trim(), err = $('#cfg-err');
-  if (!/^https:\/\/.+/.test(url)) { err.textContent = 'L\'URL deve iniziare con https:// (es. https://abcd.supabase.co).'; err.hidden = false; return; }
-  if (key.length < 20) { err.textContent = 'Incolla la chiave anon o publishable completa.'; err.hidden = false; return; }
-  LS.set('bilancio.config', { url, key });
+  const cfg = parseFirebaseConfig($('#cfg-snippet').value), err = $('#cfg-err');
+  if (!cfg.apiKey || !cfg.projectId || !cfg.authDomain) { err.textContent = 'Non trovo apiKey, authDomain e projectId: incolla l\'intero blocco firebaseConfig.'; err.hidden = false; return; }
+  LS.set('bubudex.firebase', cfg);
   location.reload();
 }
 function authView() {
   const cfg = getConfig();
   return `<div class="auth">${brandHTML}<h1>Accedi</h1>
-  <form id="auth-form" class="panel" style="display:flex;flex-direction:column;gap:14px" novalidate>
-    <div class="field"><label for="au-email">Email</label><input class="input" id="au-email" type="email" autocomplete="username" autocapitalize="off"></div>
-    <div class="field"><label for="au-pass">Password</label><input class="input" id="au-pass" type="password" autocomplete="current-password" minlength="8"></div>
-    <div class="form-err" id="au-err" hidden></div>
-    <p class="muted" id="au-msg" style="margin:0;font-size:.88rem" hidden></p>
-    <button class="btn primary" type="submit" id="au-login">Accedi</button>
-    <button class="btn" type="button" data-act="signup">Crea account (solo la prima volta)</button>
-  </form>
-  ${cfg.fromFile ? '' : `<button class="btn ghost small" data-act="reset-config" style="align-self:center">Cambia database Supabase</button>`}</div>`;
+  <div class="panel" style="display:flex;flex-direction:column;gap:12px">
+    <button class="btn primary" type="button" data-act="google" style="padding:12px"><svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>Accedi con Google</button>
+    <div class="form-err" id="g-err" hidden></div>
+    <button class="btn ghost small" type="button" data-act="email-login">Accedi con email e password</button>
+    <form id="auth-form" style="display:flex;flex-direction:column;gap:12px" novalidate hidden>
+      <div class="field"><label for="au-email">Email</label><input class="input" id="au-email" type="email" autocomplete="username" autocapitalize="off"></div>
+      <div class="field"><label for="au-pass">Password</label><input class="input" id="au-pass" type="password" autocomplete="current-password" minlength="8"></div>
+      <div class="form-err" id="au-err" hidden></div>
+      <p class="muted" id="au-msg" style="margin:0;font-size:.88rem" hidden></p>
+      <button class="btn primary" type="submit" id="au-login">Accedi</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn small" type="button" data-act="signup">Crea account</button><button class="btn small ghost" type="button" data-act="reset-pass">Password dimenticata</button></div>
+    </form>
+  </div>
+  ${cfg.fromFile ? '' : `<button class="btn ghost small" data-act="reset-config" style="align-self:center">Cambia progetto Firebase</button>`}</div>`;
+}
+const isStandalone = () => (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+async function googleLogin() {
+  const err = $('#g-err'); if (err) err.hidden = true;
+  const prov = new firebase.auth.GoogleAuthProvider(); prov.setCustomParameters({ prompt: 'select_account' });
+  try { await firebase.auth().signInWithPopup(prov); }
+  catch (e) {
+    const c = String(e.code || '');
+    if (c.includes('popup-blocked') || c.includes('operation-not-supported') || (isStandalone() && c.includes('popup'))) { try { await firebase.auth().signInWithRedirect(prov); return; } catch (e2) { e = e2; } }
+    if (c.includes('popup-closed') || c.includes('cancelled-popup')) return;
+    if (err) { err.textContent = c.includes('unauthorized-domain') ? 'Questo indirizzo non è autorizzato: in Firebase aggiungi hyf0515.github.io in Authentication → Impostazioni → Domini autorizzati.' : c.includes('operation-not-allowed') ? 'L\'accesso con Google non è attivo: abilitalo in Firebase → Authentication → Metodo di accesso.' : 'Accesso non riuscito: ' + (e.message || c); err.hidden = false; }
+  }
 }
 async function authSubmit(mode) {
   const email = $('#au-email').value.trim(), pass = $('#au-pass').value, err = $('#au-err'), msg = $('#au-msg');
@@ -1839,53 +1850,52 @@ async function authSubmit(mode) {
   if (!email || !pass) { err.textContent = 'Inserisci email e password.'; err.hidden = false; return; }
   if (mode === 'signup' && pass.length < 8) { err.textContent = 'Scegli una password di almeno 8 caratteri.'; err.hidden = false; return; }
   $$('#auth-form button').forEach(b => b.disabled = true);
-  const res = mode === 'signup'
-    ? await S.sb.auth.signUp({ email, password: pass, options: { emailRedirectTo: location.origin + location.pathname } })
-    : await S.sb.auth.signInWithPassword({ email, password: pass });
-  $$('#auth-form button').forEach(b => b.disabled = false);
-  if (res.error) {
-    const m = res.error.message || '';
-    err.textContent = /invalid login/i.test(m) ? 'Email o password non corretti.' : /not confirmed/i.test(m) ? 'Devi prima confermare l\'email: apri il link che ti è arrivato.' : /already registered/i.test(m) ? 'Esiste già un account con questa email: usa Accedi.' : /signups not allowed/i.test(m) ? 'La registrazione di nuovi account è disattivata.' : isNetErr(res.error) ? 'Nessuna connessione a internet.' : m;
-    err.hidden = false; return;
-  }
-  if (res.data.session) startSession(res.data.session.user);
-  else { msg.textContent = 'Account creato. Apri il link di conferma che ti è arrivato via email, poi torna qui e accedi.'; msg.hidden = false; }
+  try {
+    if (mode === 'signup') await firebase.auth().createUserWithEmailAndPassword(email, pass);
+    else await firebase.auth().signInWithEmailAndPassword(email, pass);
+  } catch (e) {
+    const c = String(e.code || '');
+    err.textContent = /wrong-password|user-not-found|invalid-credential|invalid-login/.test(c) ? 'Email o password non corretti.' : c.includes('email-already-in-use') ? 'Esiste già un account con questa email: usa Accedi.' : c.includes('operation-not-allowed') ? 'L\'accesso con email non è attivo in Firebase (Authentication → Metodo di accesso).' : c.includes('admin-restricted') ? 'La registrazione di nuovi account è disattivata.' : c.includes('network') ? 'Nessuna connessione a internet.' : (e.message || c);
+    err.hidden = false;
+  } finally { $$('#auth-form button').forEach(b => b.disabled = false); }
+}
+async function resetPass() {
+  const email = $('#au-email')?.value.trim(), msg = $('#au-msg'), err = $('#au-err');
+  if (!email) { err.textContent = 'Scrivi la tua email, poi premi di nuovo "Password dimenticata".'; err.hidden = false; return; }
+  try { await firebase.auth().sendPasswordResetEmail(email); msg.textContent = 'Ti ho inviato un\'email per reimpostare la password.'; msg.hidden = false; err.hidden = true; }
+  catch (e) { err.textContent = e.message || 'Invio non riuscito.'; err.hidden = false; }
 }
 async function logout(btn) {
-  if (outbox.length && !btn.classList.contains('armed')) { btn.classList.add('armed'); btn.textContent = `${outbox.length} modifiche non ancora inviate: esci comunque`; return; }
-  await S.sb.auth.signOut().catch(() => {});
-  LS.del(cacheKey()); LS.del(outboxKey()); LS.del('bilancio.lastUser');
+  if (pendingWrites && !btn.classList.contains('armed')) { btn.classList.add('armed'); btn.textContent = 'Ci sono modifiche non ancora inviate: esci comunque'; return; }
+  unsubs.forEach(u => u()); unsubs = [];
+  try { await firebase.auth().signOut(); } catch (e) {}
+  try { await S.fs.terminate(); await S.fs.clearPersistence(); } catch (e) {}
+  LS.del('bubudex.fx');
   location.hash = ''; location.reload();
 }
-async function startSession(user) {
-  if (S.user && S.user.id === user.id) return;
-  S.user = { id: user.id, email: user.email };
-  LS.set('bilancio.lastUser', S.user);
-  outbox = LS.get(outboxKey(), []);
-  const cached = LS.get(cacheKey(), null);
-  if (cached) loadDocs(cached);
-  for (const o of outbox) applyLocal(o.col, o.id, o.op === 'set' ? o.data : null);
+function startSession(user) {
+  if (S.user && S.user.id === user.uid) return;
+  S.user = { id: user.uid, email: user.email || user.displayName || '' };
   S.status = 'ok'; render(); updateSync();
-  await refresh();
-  fxRefresh();
-  if (S.synced && !S.categories.length && !outbox.length) DEFAULT_CATS.forEach(([id, name, kind], i) => put('categories', id, { name, kind, color: MACARON[i % MACARON.length] }));
+  listen();
 }
 
 /* ---------- avvio ---------- */
 async function boot() {
   const cfg = getConfig();
-  if (!window.supabase || !window.supabase.createClient) { $('#view').innerHTML = `<div class="panel empty"><h2>Impossibile avviare l'app</h2><p>Il file vendor/supabase.js non è stato caricato. Controlla la connessione e ricarica.</p></div>`; return; }
-  if (!cfg.url || !cfg.key) { S.status = 'setup'; render(); return; }
-  S.sb = window.supabase.createClient(cfg.url, cfg.key, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: 'bilancio.auth' } });
-  S.sb.auth.onAuthStateChange((ev, session) => {
-    if (ev === 'SIGNED_IN' && session && !S.user) startSession(session.user);
+  if (!window.firebase || !firebase.initializeApp) { $('#view').innerHTML = `<div class="panel empty"><h2>Impossibile avviare l'app</h2><p>La libreria di Firebase non è stata caricata. Controlla la connessione e ricarica.</p></div>`; return; }
+  if (!cfg.apiKey || !cfg.projectId) { S.status = 'setup'; render(); return; }
+  const { fromFile, ...conf } = cfg;
+  firebase.initializeApp(conf);
+  S.fs = firebase.firestore();
+  try { await S.fs.enablePersistence({ synchronizeTabs: true }); } catch (e) { /* un'altra scheda la usa già o il browser non la supporta */ }
+  firebase.auth().getRedirectResult().catch(e => { const el = $('#g-err'); if (el) { el.textContent = 'Accesso non riuscito: ' + (e.message || e.code); el.hidden = false; } });
+  let first = true;
+  firebase.auth().onAuthStateChanged(user => {
+    if (user) startSession(user);
+    else { if (S.user) { location.reload(); return; } S.status = 'auth'; render(); }
+    first = false;
   });
-  let session = null;
-  try { ({ data: { session } } = await S.sb.auth.getSession()); } catch (e) { /* offline */ }
-  if (session) return startSession(session.user);
-  const last = LS.get('bilancio.lastUser', null);
-  if (last && !navigator.onLine) { netDown = true; return startSession(last); }
-  S.status = 'auth'; render();
 }
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 boot();
