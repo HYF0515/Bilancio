@@ -1,7 +1,7 @@
 // Service worker: rende l'app installabile e utilizzabile offline.
 // I file dell'app vengono presi dalla rete quando possibile (così gli aggiornamenti arrivano subito)
 // e dalla cache quando sei offline. Le chiamate a Firebase non passano mai dalla cache.
-const CACHE = 'bubudex-v32';
+const CACHE = 'bubudex-v33';
 const SHELL = ['./', 'index.html', 'config.js', 'vendor/firebase-app-compat.js', 'vendor/firebase-auth-compat.js', 'vendor/firebase-firestore-compat.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 

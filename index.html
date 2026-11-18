@@ -25,7 +25,7 @@
   --f-display:"Bricolage Grotesque", "Inter", system-ui, sans-serif;
   --f-body:"Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --f-data:"IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
-  --bar:#6274E3;
+  --bar:#6274E3; --bar-ok:#A9B5F2; --bar-near:#F5C894; --bar-over:#F0A3B1;
   --chart-in:#9FD8B4; --chart-out:#AAB6F3; --chart-over:#F4A9B8;
   --r:10px; --shadow:0 1px 2px rgba(20,25,35,.06), 0 4px 16px rgba(20,25,35,.05);
 }
@@ -33,14 +33,14 @@
   --bg:#0E1117; --surface:#161A22; --surface-2:#1D222C; --line:#2A303C; --fg:#E7EAF0; --muted:#98A1B2;
   --accent:#8C9BFF; --accent-soft:#232948; --on-accent:#0E1117;
   --pos:#45C887; --neg:#F07A70; --warn:#E2AA4E; --pos-soft:#15301F; --neg-soft:#3A1A18; --warn-soft:#352812;
-  --bar:#7C8BF2;
+  --bar:#7C8BF2; --bar-ok:#8F9CEB; --bar-near:#E3B27A; --bar-over:#E5909F;
   --chart-in:#8FCFA7; --chart-out:#9DA9EE; --chart-over:#EE9AAB;
   --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark }}
 :root[data-theme="dark"]{
   --bg:#0E1117; --surface:#161A22; --surface-2:#1D222C; --line:#2A303C; --fg:#E7EAF0; --muted:#98A1B2;
   --accent:#8C9BFF; --accent-soft:#232948; --on-accent:#0E1117;
   --pos:#45C887; --neg:#F07A70; --warn:#E2AA4E; --pos-soft:#15301F; --neg-soft:#3A1A18; --warn-soft:#352812;
-  --bar:#7C8BF2;
+  --bar:#7C8BF2; --bar-ok:#8F9CEB; --bar-near:#E3B27A; --bar-over:#E5909F;
   --chart-in:#8FCFA7; --chart-out:#9DA9EE; --chart-over:#EE9AAB;
   --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark }
 *{box-sizing:border-box}
@@ -140,8 +140,8 @@ a.btn{color:inherit;text-decoration:none}
 .empty{padding:28px 12px;text-align:center;color:var(--muted);display:flex;flex-direction:column;gap:10px;align-items:center}
 
 .bar{height:8px;border-radius:99px;background:var(--surface-2);overflow:hidden;position:relative}
-.bar i{display:block;height:100%;border-radius:99px;background:var(--bar)}
-.bar.over i{background:var(--neg)} .bar.near i{background:var(--warn)}
+.bar i{display:block;height:100%;border-radius:99px;background:var(--bar-ok)}
+.bar.over i{background:var(--bar-over)} .bar.near i{background:var(--bar-near)}
 .catrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;align-items:center;padding:8px 0}
 .catrow .bar{grid-column:1/-1}
 .catname{display:flex;align-items:center;gap:8px;min-width:0}
