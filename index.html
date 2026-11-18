@@ -264,7 +264,7 @@ body.locked .app{grid-template-columns:minmax(0,1fr)}
 .hero-tile .v{font-size:1.15rem}
 .hero .tag{font-size:.74rem;font-weight:600;padding:2px 9px;border-radius:999px;background:var(--surface);color:var(--fg)}
 .hero .tag.in{background:var(--tag-in);color:var(--tag-in-fg)}.hero .tag.out{background:var(--tag-out);color:var(--tag-out-fg)}.hero .tag.sav{background:var(--tag-sav);color:var(--tag-sav-fg)}
-.hero .v.neg{color:var(--neg)}
+.hero .v.neg{color:var(--neg)}.hero .v.pos{color:var(--pos)}
 /* budget del mese */
 .bcard .bcard-tot{color:var(--muted);text-decoration:none;font-weight:600}
 .bcard-cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));text-align:center}
@@ -362,7 +362,7 @@ html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
 <script>
 (() => {
 "use strict";
-const APP_VERSION = '44';
+const APP_VERSION = '45';
 /* ---------- utilità ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -837,7 +837,7 @@ function heroSummary(nw, inc, out, net) {
   return `<section class="hero privacy">
     <div class="hero-top"><span class="eyebrow">Patrimonio netto</span><span class="v num hero-nw">${money0(nw)}</span></div>
     <div class="hero-tiles">
-      <div class="hero-tile"><span class="tag in">Entrate</span><span class="v num">${money0(inc)}</span></div>
+      <div class="hero-tile"><span class="tag in">Entrate</span><span class="v num pos">${money0(inc)}</span></div>
       <div class="hero-tile"><span class="tag out">Uscite</span><span class="v num neg">${money0(out)}</span></div>
       <div class="hero-tile"><span class="tag sav">Risparmio</span><span class="v num ${net < 0 ? 'neg' : ''}">${money0(net)}</span></div>
     </div></section>`;
@@ -1278,8 +1278,8 @@ VIEWS.patrimonio = () => {
   </section>
   <section class="panel"><div class="panel-h"><h2>Portafoglio investimenti</h2>
     <div style="display:flex;gap:8px;flex-wrap:wrap"><span class="pill num">Valore ${money(inv)}</span><span class="pill num ${inv - cost >= 0 ? 'pos' : 'neg'}">${inv - cost >= 0 ? '+' : '−'}${money(Math.abs(inv - cost))} (${pct(cost ? (inv - cost) / cost : NaN)})</span></div></div>
-    ${hs.length ? `<div class="tbl-wrap"><table><thead><tr><th>Titolo</th><th>Classe</th><th class="r">Quantità</th><th class="r">Prezzo medio</th><th class="r">Prezzo attuale</th><th class="r">Valore</th><th class="r">P/L</th><th class="r">Peso</th></tr></thead><tbody>
-      ${hs.map(h => { const v = holdingValue(h), c = holdingCost(h), pl = v - c; return `<tr class="click" data-act="edit-hold" data-id="${esc(h.id)}"><td><b>${esc(h.name)}</b><br><span class="mono muted">${esc(h.ticker || '')}</span></td><td>${esc(h.assetClass || '')}</td><td class="r num">${nf.format(+h.quantity || 0)}</td><td class="r num">${money(+h.avgCost)}</td><td class="r num">${money(+h.price)}<br><span class="muted" style="font-size:.75rem">${h.priceDate ? dShort(h.priceDate) : ''}</span></td><td class="r num"><b>${money(v)}</b></td><td class="r num ${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${money(Math.abs(pl))}<br><span style="font-size:.78rem">${pct(c ? pl / c : NaN)}</span></td><td class="r num">${pct(inv ? v / inv : NaN)}</td></tr>`; }).join('')}
+    ${hs.length ? `<div class="tbl-wrap"><table><thead><tr><th>Titolo</th><th>Classe</th><th class="r">Quantità</th><th class="r">Prezzo medio</th><th class="r">Valore</th><th class="r">P/L</th><th class="r">Peso</th></tr></thead><tbody>
+      ${hs.map(h => { const v = holdingValue(h), c = holdingCost(h), pl = v - c; return `<tr class="click" data-act="edit-hold" data-id="${esc(h.id)}"><td><b>${esc(h.name)}</b></td><td>${esc(h.assetClass || '')}</td><td class="r num">${nf.format(+h.quantity || 0)}</td><td class="r num">${money(+h.avgCost)}</td><td class="r num"><b>${money(v)}</b></td><td class="r num ${pl >= 0 ? 'pos' : 'neg'}">${pl >= 0 ? '+' : '−'}${money(Math.abs(pl))}<br><span style="font-size:.78rem">${pct(c ? pl / c : NaN)}</span></td><td class="r num">${pct(inv ? v / inv : NaN)}</td></tr>`; }).join('')}
     </tbody></table></div><p class="muted" style="font-size:.8rem;margin:10px 0 0">Tocca una riga per aggiornare il prezzo o la quantità.</p>`
       : `<div class="empty"><p>Registra azioni, ETF, obbligazioni o altri asset con quantità e prezzo.</p><button class="btn primary" data-act="new-hold">+ Investimento</button></div>`}
   </section>`;
