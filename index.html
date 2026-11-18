@@ -247,6 +247,17 @@ body.locked .app{grid-template-columns:minmax(0,1fr)}
 
 /* Intestazioni con selettore di mese/anno: titolo e selettore sulla stessa riga anche su telefono */
 .lbl-short{display:none}
+:root{--splash:#D5E1E8;--splash-fg:#4F6475}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--splash:#25232A;--splash-fg:#B3CAD8}}
+:root[data-theme="dark"]{--splash:#25232A;--splash-fg:#B3CAD8}
+.splash{position:fixed;inset:0;z-index:200;background:var(--splash);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:24px;text-align:center;transition:opacity .35s ease}
+.splash img{width:96px;height:96px;border-radius:24px;box-shadow:0 10px 30px rgba(47,44,51,.14)}
+.splash p{margin:0;color:var(--splash-fg);font-size:.95rem;font-weight:500;letter-spacing:.03em;max-width:300px}
+.splash.out{opacity:0;pointer-events:none}
+.splash .dots i{font-style:normal;animation:splashDot 1.2s infinite both}
+.splash .dots i:nth-child(2){animation-delay:.2s}.splash .dots i:nth-child(3){animation-delay:.4s}
+@keyframes splashDot{0%,80%,100%{opacity:.2}40%{opacity:1}}
+@media (prefers-reduced-motion: reduce){.splash .dots i{animation:none}.splash{transition:none}}
 .pac-due{background:var(--accent-soft);border-radius:12px;padding:12px 14px 4px;margin-bottom:14px}
 .pac-due .list-row{border-bottom:0}
 /* riepilogo in evidenza */
@@ -351,8 +362,9 @@ html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
     <nav class="nav" id="nav" aria-label="Sezioni"></nav>
     <div class="side-foot"><span class="sync" id="sync"><i></i><span>Sincronizzato</span></span><span>Dati privati, visibili solo a te.</span></div>
   </aside>
-  <main class="main"><div class="wrap" id="view"><div class="skel">Caricamento dei tuoi dati…</div></div></main>
+  <main class="main"><div class="wrap" id="view"></div></main>
 </div>
+<div class="splash" id="splash" role="status" aria-live="polite"><img src="icons/icon-192.png" alt="" width="96" height="96"><p id="splash-msg">Caricamento dati<span class="dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i></span></p></div>
 <button class="fab" id="fab" aria-label="Nuovo movimento" data-act="new-tx">+</button>
 <div class="modal" id="modal" hidden></div>
 <div class="toast" id="toast" hidden></div>
@@ -364,7 +376,7 @@ html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
 <script>
 (() => {
 "use strict";
-const APP_VERSION = '46';
+const APP_VERSION = '47';
 /* ---------- utilità ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -749,11 +761,12 @@ function render() {
   const v = $('#view');
   const locked = S.status === 'setup' || S.status === 'auth';
   document.body.classList.toggle('locked', locked);
+  if (S.status === 'setup' || S.status === 'auth' || S.synced || S.accounts.length || S.transactions.length || S.categories.length) splash(false);
   if (S.status === 'setup') { if (!$('#setup-form')) v.innerHTML = setupView(); return; }
   if (S.status === 'auth') { if (!$('#auth-form')) v.innerHTML = authView(); return; }
   renderNav();
   if (!S.synced && !S.accounts.length && !S.transactions.length && !S.categories.length) {
-    v.innerHTML = `<div class="skel">${netDown ? 'Sei offline e su questo dispositivo non ci sono ancora dati salvati. Collegati a internet per scaricarli.' : 'Caricamento dei tuoi dati…'}</div>`; return;
+    v.innerHTML = ''; splash(true, netDown ? 'Sei offline e su questo dispositivo non ci sono ancora dati salvati. Collegati a internet per scaricarli.' : ''); return;
   }
   const r = route();
   const sx = window.scrollY;
@@ -773,6 +786,13 @@ function addFolds(r) {
     sec.classList.add('foldable'); sec.classList.toggle('folded', f); sec.dataset.fold = key;
     h.insertAdjacentHTML('beforeend', `<button class="fold-btn" type="button" data-act="fold" aria-expanded="${!f}" aria-label="${f ? 'Apri' : 'Chiudi'} il riquadro ${esc(t)}" title="${f ? 'Apri' : 'Chiudi'}">${CHEV}</button>`);
   });
+}
+// Schermata d'avvio: colore della palette, icona dell'app e "Caricamento dati"
+function splash(show, msg) {
+  const el = $('#splash'); if (!el) return;
+  if (show) { el.classList.remove('out'); if (msg) $('#splash-msg').textContent = msg; return; }
+  if (el.classList.contains('out')) return;
+  el.classList.add('out'); setTimeout(() => el.remove(), 400);
 }
 function demoBanner() {
   return `<div class="banner"><div><b>Stai vedendo dati di esempio.</b> <span class="muted">Servono a mostrarti come funziona. Eliminali quando vuoi iniziare con i tuoi.</span></div><button class="btn small danger" data-act="del-demo" id="btn-del-demo">Elimina dati di esempio</button></div>`;
