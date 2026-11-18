@@ -602,9 +602,9 @@ function mortgageStats(pr) {
   return { principal, startRes, res, paid, interest, capital, rows, pay, monthsLeft, toPay, endYm: monthsLeft != null ? addMonths(lastYm, monthsLeft) : null, pctRepaid: 1 - res / principal, hasRate: !!r, categoryId: m.categoryId };
 }
 VIEWS.proprieta = () => {
-  const pr = prop(), name = propName();
-  const head = (extra = '') => `<div class="head"><div><div class="eyebrow">Proprietà</div><h1>${esc(name)}</h1>${pr?.address ? `<span class="muted">${esc(pr.address)}</span>` : ''}</div><div class="head-actions">${extra}</div></div>`;
-  if (!pr) return head() + `<section class="panel empty"><h2>Inserisci i dati della casa</h2><p>Importo del mutuo, tasso, rata e le categorie di spesa della casa (condominio, utenze, assicurazione…). Le rate che registri nei movimenti aggiorneranno da sole il debito residuo.</p><button class="btn primary" data-act="edit-prop">Inserisci i dati</button></section>`;
+  const saved = prop();
+  const pr = saved || { name: 'Marzabotto 14', mortgage: { categoryId: guessCat(/mutuo/i) }, expenseCats: S.categories.filter(c => c.kind === 'spesa' && /condomin|utenz|bollett|assicuraz.*casa|wi-?fi|internet|manutenz|imu|tari|rifiuti/i.test(c.name)).map(c => c.id) };
+  const name = pr.name || 'Marzabotto 14';
   const ms = mortgageStats(pr), year = S.ui.propYear;
   const mcat = pr.mortgage?.categoryId || '', cats = (pr.expenseCats || []).filter(id => id !== mcat);
   const ptx = sortTx(S.transactions.filter(t => t.kind === 'spesa' && String(t.date).startsWith(year) && (cats.includes(t.categoryId) || (mcat && t.categoryId === mcat))));
@@ -612,43 +612,53 @@ VIEWS.proprieta = () => {
   const byCat = {}; ptx.filter(t => t.categoryId !== mcat).forEach(t => byCat[t.categoryId] = (byCat[t.categoryId] || 0) + +t.amount);
   const exp = sumObj(byCat), tot = exp + mort;
   const cy = todayISO().slice(0, 4), months = year < cy ? 12 : year > cy ? 0 : +todayISO().slice(5, 7);
+  const allMortPaid = mcat ? S.transactions.filter(t => t.kind === 'spesa' && t.categoryId === mcat).reduce((s, t) => s + +t.amount, 0) : 0;
   const value = +pr.currentValue || 0;
-  const actions = `<button class="btn" data-act="edit-prop">Modifica dati</button>${ms ? `<button class="btn" data-act="prop-pay">+ Rata mutuo</button>` : ''}<button class="btn primary" data-act="prop-exp">+ Spesa casa</button>`;
-  let mortHTML;
-  if (!ms) mortHTML = `<section class="panel"><div class="panel-h"><h2>Mutuo</h2></div><div class="empty"><p>Inserisci l'importo del mutuo per seguire il debito residuo.</p><button class="btn" data-act="edit-prop">Inserisci il mutuo</button></div></section>`;
-  else {
+  const yearNav = `<div class="month-nav"><button class="icon-btn" data-act="prop-year" data-d="-1" aria-label="Anno precedente">‹</button><span>${year}</span><button class="icon-btn" data-act="prop-year" data-d="1" aria-label="Anno successivo">›</button></div>`;
+
+  // Resoconto in apertura
+  const paidCap = ms ? ms.principal - ms.res : 0;
+  const summary = `<section class="panel"><div class="panel-h"><div><h2>Resoconto</h2><span class="muted" style="font-size:.82rem">Mutuo dall'inizio · spese dell'anno ${year}</span></div>${yearNav}</div>
+    <div class="kpis">
+      <div class="kpi"><span class="eyebrow">Mutuo pagato</span><span class="v num pos">${ms ? money0(paidCap) : money0(allMortPaid)}</span><span class="s">${ms ? `${pct(ms.pctRepaid)} del capitale · rate versate ${money0(ms.paid)}` : 'Rate versate finora'}</span></div>
+      <div class="kpi"><span class="eyebrow">Rimane da pagare</span><span class="v num">${ms ? money0(ms.res) : '—'}</span><span class="s">${ms ? (ms.monthsLeft ? `${ms.monthsLeft} rate · fine ${ymShort(ms.endYm)} ${ms.endYm.slice(0, 4)}` : ms.res <= 0.005 ? 'Mutuo estinto' : 'Capitale residuo') : 'Inserisci il totale del mutuo'}</span></div>
+      <div class="kpi"><span class="eyebrow">Spese casa ${year}</span><span class="v num">${money0(exp)}</span><span class="s">Escluso il mutuo${months ? ` · ${money0(exp / months)}/mese` : ''}</span></div>
+      <div class="kpi"><span class="eyebrow">Totale casa ${year}</span><span class="v num">${money0(tot)}</span><span class="s">Rate ${money0(mort)} + spese ${money0(exp)}</span></div>
+    </div>
+    ${ms ? `<div style="margin-top:14px;display:flex;flex-direction:column;gap:6px"><div class="bar" style="height:12px"><i style="width:${Math.min(100, ms.pctRepaid * 100).toFixed(1)}%;background:var(--pos)"></i></div><div style="display:flex;justify-content:space-between;font-size:.8rem" class="muted"><span>Pagato ${money0(paidCap)}</span><span>Totale mutuo ${money0(ms.principal)}</span></div></div>` : ''}
+  </section>`;
+
+  const actions = `<button class="btn" data-act="edit-prop">${saved ? 'Modifica dati' : 'Inserisci i dati'}</button><button class="btn" data-act="prop-pay">+ Rata mutuo</button><button class="btn primary" data-act="prop-exp">+ Spesa casa</button>`;
+  const head = `<div class="head"><div><div class="eyebrow">Proprietà</div><h1>${esc(name)}</h1>${pr.address ? `<span class="muted">${esc(pr.address)}</span>` : ''}</div><div class="head-actions">${actions}</div></div>`;
+  const notice = saved ? '' : `<div class="banner info"><div><b>Completa i dati del mutuo.</b> <span class="muted">Inserisci il totale del prestito, il tasso e la rata per vedere quanto ti rimane da pagare e quando finirai.</span></div><button class="btn small primary" data-act="edit-prop">Inserisci i dati</button></div>`;
+
+  let mortHTML = '';
+  if (ms) {
     const last = ms.rows.slice(-6).reverse();
-    mortHTML = `<section class="panel"><div class="panel-h"><div><h2>Mutuo${pr.mortgage.bank ? ' · ' + esc(pr.mortgage.bank) : ''}</h2><span class="muted" style="font-size:.82rem">Le rate registrate nella categoria “${esc(cat(mcat)?.name || '—')}” aggiornano il debito residuo</span></div></div>
+    mortHTML = `<section class="panel"><div class="panel-h"><div><h2>Dettaglio mutuo${pr.mortgage.bank ? ' · ' + esc(pr.mortgage.bank) : ''}</h2><span class="muted" style="font-size:.82rem">Le rate registrate nella categoria “${esc(cat(mcat)?.name || '—')}” aggiornano il debito residuo</span></div></div>
       <div class="kpis" style="margin-bottom:14px">
-        <div class="kpi"><span class="eyebrow">Debito residuo</span><span class="v num">${money0(ms.res)}</span><span class="s">su ${money0(ms.principal)} di mutuo</span></div>
-        <div class="kpi"><span class="eyebrow">Capitale rimborsato</span><span class="v num pos">${pct(ms.pctRepaid)}</span><span class="s">${money0(ms.principal - ms.res)} restituiti</span></div>
-        <div class="kpi"><span class="eyebrow">Rate registrate</span><span class="v num">${money0(ms.paid)}</span><span class="s">${ms.rows.length} mes${ms.rows.length === 1 ? 'e' : 'i'}${ms.hasRate ? ` · interessi ${money0(ms.interest)}` : ''}</span></div>
-        <div class="kpi"><span class="eyebrow">Fine prevista</span><span class="v num">${ms.endYm ? ymShort(ms.endYm) + ' ' + ms.endYm.slice(0, 4) : '—'}</span><span class="s">${ms.monthsLeft != null ? `${ms.monthsLeft} rate · ancora ${money0(ms.toPay)} da versare` : 'Inserisci la rata per stimarla'}</span></div>
+        <div class="kpi"><span class="eyebrow">Totale mutuo</span><span class="v num">${money0(ms.principal)}</span><span class="s">${pr.mortgage.years ? pr.mortgage.years + ' anni' : '&nbsp;'}${pr.mortgage.rate ? ' · TAN ' + String(pr.mortgage.rate).replace('.', ',') + '%' : ''}</span></div>
+        <div class="kpi"><span class="eyebrow">Rata mensile</span><span class="v num">${ms.pay ? money(ms.pay) : '—'}</span><span class="s">${ms.rows.length} mes${ms.rows.length === 1 ? 'e' : 'i'} registrat${ms.rows.length === 1 ? 'o' : 'i'}</span></div>
+        <div class="kpi"><span class="eyebrow">Interessi pagati</span><span class="v num">${ms.hasRate ? money0(ms.interest) : '—'}</span><span class="s">${ms.hasRate ? 'Sulle rate registrate' : 'Inserisci il tasso'}</span></div>
+        <div class="kpi"><span class="eyebrow">Ancora da versare</span><span class="v num">${ms.toPay != null ? money0(ms.toPay) : '—'}</span><span class="s">Capitale + interessi futuri</span></div>
       </div>
-      <div class="bar" style="height:12px"><i style="width:${Math.min(100, ms.pctRepaid * 100).toFixed(1)}%;background:var(--pos)"></i></div>
-      ${ms.hasRate ? '' : `<p class="muted" style="font-size:.82rem;margin:10px 0 0">Senza il tasso d'interesse ogni rata riduce il debito per intero. Inserisci il tasso (TAN) in “Modifica dati” per separare interessi e capitale.</p>`}
-      ${last.length ? `<div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Mese</th><th class="r">Rata</th>${ms.hasRate ? '<th class="r hide-m">Interessi</th><th class="r hide-m">Capitale</th>' : ''}<th class="r">Residuo</th></tr></thead><tbody>
+      ${ms.hasRate ? '' : `<p class="muted" style="font-size:.82rem;margin:0 0 10px">Senza il tasso d'interesse ogni rata riduce il debito per intero. Inserisci il tasso (TAN) in “Modifica dati” per separare interessi e capitale.</p>`}
+      ${last.length ? `<div class="tbl-wrap"><table><thead><tr><th>Mese</th><th class="r">Rata</th>${ms.hasRate ? '<th class="r hide-m">Interessi</th><th class="r hide-m">Capitale</th>' : ''}<th class="r">Residuo</th></tr></thead><tbody>
         ${last.map(x => `<tr><td>${ymLabel(x.ym)}</td><td class="r num">${money(x.p)}</td>${ms.hasRate ? `<td class="r num hide-m">${money(x.i)}</td><td class="r num hide-m">${money(x.c)}</td>` : ''}<td class="r num"><b>${money0(x.res)}</b></td></tr>`).join('')}
-      </tbody></table></div>` : `<p class="muted" style="margin:12px 0 0">Nessuna rata registrata dopo il ${dShort(pr.mortgage.refDate || pr.mortgage.startDate)}. Usa “+ Rata mutuo” per aggiungere la prima.</p>`}
+      </tbody></table></div>` : `<p class="muted" style="margin:0">Nessuna rata registrata${pr.mortgage.refDate || pr.mortgage.startDate ? ' dopo il ' + dShort(pr.mortgage.refDate || pr.mortgage.startDate) : ''}. Usa “+ Rata mutuo” per aggiungere la prima.</p>`}
     </section>`;
   }
   const valueHTML = value || +pr.purchasePrice ? `<section class="panel"><div class="panel-h"><h2>Valore dell'immobile</h2></div>
     <div class="kpis"><div class="kpi"><span class="eyebrow">Valore stimato</span><span class="v num">${value ? money0(value) : '—'}</span><span class="s">${pr.valueDate ? 'Stima del ' + dShort(pr.valueDate) : '&nbsp;'}</span></div>
     <div class="kpi"><span class="eyebrow">Prezzo d'acquisto</span><span class="v num">${+pr.purchasePrice ? money0(+pr.purchasePrice) : '—'}</span><span class="s">${pr.purchaseDate ? dShort(pr.purchaseDate) : '&nbsp;'}</span></div>
     <div class="kpi"><span class="eyebrow">Quota di tua proprietà</span><span class="v num ${value && ms && value - ms.res < 0 ? 'neg' : 'pos'}">${value ? money0(value - (ms ? ms.res : 0)) : '—'}</span><span class="s">Valore meno debito residuo</span></div>
-    <div class="kpi"><span class="eyebrow">Costo casa nel ${year}</span><span class="v num">${money0(tot)}</span><span class="s">Mutuo + spese</span></div></div></section>` : '';
-  return head(actions) + mortHTML + valueHTML + `
-  <section class="panel"><div class="panel-h"><h2>Spese della casa</h2><div class="month-nav"><button class="icon-btn" data-act="prop-year" data-d="-1" aria-label="Anno precedente">‹</button><span>${year}</span><button class="icon-btn" data-act="prop-year" data-d="1" aria-label="Anno successivo">›</button></div></div>
-    <div class="kpis" style="margin-bottom:14px">
-      <div class="kpi"><span class="eyebrow">Spese casa</span><span class="v num">${money0(exp)}</span><span class="s">Escluso il mutuo</span></div>
-      <div class="kpi"><span class="eyebrow">Rate mutuo</span><span class="v num">${money0(mort)}</span><span class="s">Pagate nel ${year}</span></div>
-      <div class="kpi"><span class="eyebrow">Totale</span><span class="v num">${money0(tot)}</span><span class="s">Spese + mutuo</span></div>
-      <div class="kpi"><span class="eyebrow">Media mensile</span><span class="v num">${months ? money0(tot / months) : '—'}</span><span class="s">${months ? `Su ${months} mes${months === 1 ? 'e' : 'i'}` : 'Anno non iniziato'}</span></div>
-    </div>
-    ${Object.keys(byCat).length ? Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([cid, v]) => { const c = cat(cid); return `<div class="catrow"><div class="catname"><i class="dot" style="background:${esc(c?.color || '#999')}"></i><span>${esc(c?.name || 'Senza categoria')}</span></div><div class="num">${money(v)} <span class="muted">· ${pct(v / exp)}</span></div><div class="bar"><i style="width:${(v / exp * 100).toFixed(1)}%;background:${esc(c?.color || 'var(--accent)')}"></i></div></div>`; }).join('') : `<p class="muted" style="margin:0">Nessuna spesa della casa nel ${year}${cats.length ? '' : ': scegli le categorie della casa in “Modifica dati”'}.</p>`}
-    <p class="muted" style="font-size:.82rem;margin:10px 0 0">Categorie collegate: ${cats.map(id => esc(cat(id)?.name || '')).filter(Boolean).join(', ') || 'nessuna'}.</p>
+    <div class="kpi"><span class="eyebrow">Variazione di valore</span><span class="v num ${value - +pr.purchasePrice >= 0 ? 'pos' : 'neg'}">${value && +pr.purchasePrice ? (value >= +pr.purchasePrice ? '+' : '−') + money0(Math.abs(value - +pr.purchasePrice)) : '—'}</span><span class="s">Stima rispetto all'acquisto</span></div></div></section>` : '';
+  const spese = `<section class="panel"><div class="panel-h"><h2>Spese della casa nel ${year}</h2><span class="muted num">${money(exp)}</span></div>
+    ${Object.keys(byCat).length ? Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([cid, v]) => { const c = cat(cid); return `<div class="catrow"><div class="catname"><i class="dot" style="background:${esc(c?.color || '#999')}"></i><span>${esc(c?.name || 'Senza categoria')}</span></div><div class="num">${money(v)} <span class="muted">· ${pct(v / exp)}</span></div><div class="bar"><i style="width:${(v / exp * 100).toFixed(1)}%;background:${esc(c?.color || 'var(--accent)')}"></i></div></div>`; }).join('') : `<p class="muted" style="margin:0">Nessuna spesa della casa nel ${year}.</p>`}
+    <p class="muted" style="font-size:.82rem;margin:10px 0 0">Categorie collegate: ${cats.map(id => esc(cat(id)?.name || '')).filter(Boolean).join(', ') || 'nessuna'}. Puoi cambiarle in “${saved ? 'Modifica dati' : 'Inserisci i dati'}”.</p>
   </section>
   <section class="panel"><div class="panel-h"><h2>Movimenti della casa nel ${year}</h2><span class="pill num">${ptx.length}</span></div>${ptx.length ? txList(ptx.slice(0, 40)) + (ptx.length > 40 ? `<p class="muted" style="margin:10px 0 0">Mostrati gli ultimi 40. Gli altri sono in Movimenti, filtrando per categoria.</p>` : '') : '<p class="muted" style="margin:0">Nessun movimento.</p>'}</section>`;
+  return head + notice + summary + mortHTML + spese + valueHTML;
 };
 function propForm() {
   const pr = prop() || { name: 'Marzabotto 14' }, m = pr.mortgage || {};
@@ -1354,7 +1364,7 @@ document.addEventListener('click', e => {
   if (a === 'more') { e.preventDefault(); return moreMenu(); }
   if (a === 'edit-prop') return propForm();
   if (a === 'prop-year') { S.ui.propYear = String(+S.ui.propYear + +t.dataset.d); render(); return; }
-  if (a === 'prop-pay') { const m = prop()?.mortgage || {}; return txForm(null, { categoryId: m.categoryId, amount: m.monthlyPayment || '', note: 'Rata mutuo ' + propName() }); }
+  if (a === 'prop-pay') { const m = prop()?.mortgage || {}; return txForm(null, { categoryId: m.categoryId || guessCat(/mutuo/i), amount: m.monthlyPayment || '', note: 'Rata mutuo ' + propName() }); }
   if (a === 'prop-exp') { const pr = prop(); return txForm(null, { categoryId: (pr?.expenseCats || [])[0] || '', note: '' }); }
   if (a === 'year') { S.ui.year = String(+S.ui.year + +t.dataset.d); render(); return; }
   if (a === 'month') { S.ui[t.dataset.key] = addMonths(S.ui[t.dataset.key], +t.dataset.d); render(); return; }
