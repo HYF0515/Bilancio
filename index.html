@@ -259,6 +259,8 @@ body.locked .app{grid-template-columns:minmax(0,1fr)}
 
 /* Intestazioni con selettore di mese/anno: titolo e selettore sulla stessa riga anche su telefono */
 .lbl-short{display:none}
+.nav-ind{display:none}
+@media (prefers-reduced-motion: reduce){.nav-ind.on{transition:none!important}}
 .prop-actions{display:flex;flex-wrap:nowrap;gap:8px;margin:0 0 4px;overflow-x:auto;scrollbar-width:none}
 .prop-actions::-webkit-scrollbar{display:none}
 .prop-actions .btn{flex:none;white-space:nowrap}
@@ -376,7 +378,11 @@ html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
   .nav a{border-radius:999px!important;color:var(--fg)!important;padding:11px 0!important}
   .nav a svg{width:23px!important;height:23px!important;stroke-width:1.9}
   .nav a:hover{background:transparent}
-  .nav a[aria-current="page"]{background:color-mix(in srgb, var(--fg) 9%, transparent)!important;color:var(--fg)!important}
+  .nav a[aria-current="page"]{background:transparent!important;color:var(--fg)!important}
+  .nav{position:relative}
+  .nav a{position:relative;z-index:1}
+  .nav-ind{display:block!important;position:absolute;left:0;top:0;border-radius:999px;background:color-mix(in srgb, var(--fg) 9%, transparent);pointer-events:none}
+  .nav-ind.on{transition:transform .38s cubic-bezier(.3,1.25,.5,1),width .38s ease}
   .fab{bottom:calc(88px + env(safe-area-inset-bottom,0px))!important}
   .main{padding-block:18px 120px!important}
   .toast{bottom:calc(96px + env(safe-area-inset-bottom,0px))}
@@ -404,7 +410,7 @@ html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
 <script>
 (() => {
 "use strict";
-const APP_VERSION = '62';
+const APP_VERSION = '63';
 /* ---------- utilità ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -737,12 +743,24 @@ const route = () => { const h = location.hash.slice(1); return ROUTES[h] ? h : '
 const MORE_ROUTES = ['budget', 'patrimonio', 'obiettivi', 'impostazioni'];
 const routeLabel = k => ROUTES[k];
 const navIcon = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[k]}</svg>`;
+// Il menù viene creato una volta sola: cambiando sezione la "pillola" grigia scorre fino alla nuova icona
 function renderNav() {
-  const r = route();
-  $('#nav').innerHTML = Object.keys(ROUTES).map(k =>
-    `<a href="#${k}" class="${MORE_ROUTES.includes(k) ? 'more' : ''}" ${k === r ? 'aria-current="page"' : ''} aria-label="${esc(routeLabel(k))}" title="${esc(routeLabel(k))}">${navIcon(k)}<span>${esc(routeLabel(k))}</span></a>`).join('')
-;
+  const r = route(), nav = $('#nav');
+  if (!nav.querySelector('.nav-ind')) {
+    nav.innerHTML = '<i class="nav-ind" aria-hidden="true"></i>' + Object.keys(ROUTES).map(k =>
+      `<a href="#${k}" data-r="${k}" class="${MORE_ROUTES.includes(k) ? 'more' : ''}" aria-label="${esc(routeLabel(k))}" title="${esc(routeLabel(k))}">${navIcon(k)}<span>${esc(routeLabel(k))}</span></a>`).join('');
+  }
+  nav.querySelectorAll('a[data-r]').forEach(a => { if (a.dataset.r === r) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
+  moveNavInd();
 }
+function moveNavInd() {
+  const nav = $('#nav'), ind = nav && nav.querySelector('.nav-ind'), a = nav && nav.querySelector('a[aria-current="page"]');
+  if (!ind || !a || !a.offsetWidth) return;
+  ind.style.width = a.offsetWidth + 'px'; ind.style.height = a.offsetHeight + 'px';
+  ind.style.transform = `translate(${a.offsetLeft}px, ${a.offsetTop}px)`;
+  if (!ind.classList.contains('on')) requestAnimationFrame(() => requestAnimationFrame(() => ind.classList.add('on')));
+}
+window.addEventListener('resize', () => { const i = $('#nav .nav-ind'); if (i) i.classList.remove('on'); moveNavInd(); });
 
 /* ---------- icone delle categorie ---------- */
 const CAT_ICONS = {
