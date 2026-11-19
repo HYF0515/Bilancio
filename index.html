@@ -389,7 +389,8 @@ html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
   .nav a{flex:0 0 62px!important;padding:12px 0!important;scroll-snap-align:center}
   .nav a svg{width:27px!important;height:27px!important}
   .fab{bottom:calc(88px + env(safe-area-inset-bottom,0px))!important}
-  .main{padding-block:18px 120px!important}
+  /* spazio in fondo: l'ultimo riquadro (anche chiuso) si può sempre portare sopra il tasto + e la barra */
+  .main{padding-block:18px calc(170px + env(safe-area-inset-bottom,0px))!important}
   .toast{bottom:calc(96px + env(safe-area-inset-bottom,0px))}
 }
 @media (prefers-reduced-motion: no-preference){ .bar i{transition:width .4s ease} }
@@ -415,7 +416,7 @@ html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
 <script>
 (() => {
 "use strict";
-const APP_VERSION = '64';
+const APP_VERSION = '65';
 /* ---------- utilità ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
