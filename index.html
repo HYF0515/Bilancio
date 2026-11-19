@@ -382,7 +382,12 @@ html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
   .nav{position:relative}
   .nav a{position:relative;z-index:1}
   .nav-ind{display:block!important;position:absolute;left:0;top:0;border-radius:999px;background:color-mix(in srgb, var(--fg) 9%, transparent);pointer-events:none}
-  .nav-ind.on{transition:transform .38s cubic-bezier(.3,1.25,.5,1),width .38s ease}
+  .nav-ind.on{transition:transform .32s cubic-bezier(.25,.8,.3,1),width .32s ease}
+  /* icone più grandi: la barra scorre a destra e sinistra se non ci stanno tutte */
+  .nav{overflow-x:auto;overflow-y:hidden;flex-wrap:nowrap!important;justify-content:flex-start!important;border-radius:999px;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;scroll-snap-type:x proximity}
+  .nav::-webkit-scrollbar{display:none}
+  .nav a{flex:0 0 62px!important;padding:12px 0!important;scroll-snap-align:center}
+  .nav a svg{width:27px!important;height:27px!important}
   .fab{bottom:calc(88px + env(safe-area-inset-bottom,0px))!important}
   .main{padding-block:18px 120px!important}
   .toast{bottom:calc(96px + env(safe-area-inset-bottom,0px))}
@@ -410,7 +415,7 @@ html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
 <script>
 (() => {
 "use strict";
-const APP_VERSION = '63';
+const APP_VERSION = '64';
 /* ---------- utilità ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -752,6 +757,10 @@ function renderNav() {
   }
   nav.querySelectorAll('a[data-r]').forEach(a => { if (a.dataset.r === r) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
   moveNavInd();
+  // porta l'icona della sezione attiva al centro della barra
+  const act = nav.querySelector('a[aria-current="page"]');
+  if (act && nav.scrollWidth > nav.clientWidth) { const left = act.offsetLeft - (nav.clientWidth - act.offsetWidth) / 2; if (Math.abs(nav.scrollLeft - left) > 2) nav.scrollTo({ left, behavior: nav.dataset.ready ? 'smooth' : 'auto' }); }
+  nav.dataset.ready = '1';
 }
 function moveNavInd() {
   const nav = $('#nav'), ind = nav && nav.querySelector('.nav-ind'), a = nav && nav.querySelector('a[aria-current="page"]');
