@@ -416,7 +416,7 @@ html{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%}
 <script>
 (() => {
 "use strict";
-const APP_VERSION = '65';
+const APP_VERSION = '66';
 /* ---------- utilità ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -620,12 +620,31 @@ const sumObj = o => Object.values(o).reduce((a, b) => a + b, 0);
 const holdingValue = h => (+h.quantity || 0) * (+h.price || 0);
 const holdingCost = h => (+h.quantity || 0) * (+h.avgCost || 0);
 const investTotal = () => S.holdings.reduce((a, h) => a + holdingValue(h), 0);
+// Spese anticipate per altri: conta come mia solo la parte che non mi verrà rimborsata.
+// I rimborsi ricevuti (entrate con reimb) non sono entrate: chiudono il credito verso quella persona.
+const foEUR = t => t.kind === 'spesa' && !t.paidBy ? Math.min(+t.amount || 0, Math.max(0, +t.forOthers || 0)) : 0;
+const myAmt = t => (+t.amount || 0) - foEUR(t);
+const isInc = t => t.kind === 'entrata' && !t.reimb;
+const personKey = n => String(n || '').trim().toLowerCase();
+// Crediti verso altre persone (anticipato − rimborsato), eventualmente fino a una data
+function receivables(upTo) {
+  const o = {};
+  for (const t of S.transactions) {
+    if (upTo && t.date > upTo) continue;
+    const k = personKey(t.owedBy); if (!k) continue;
+    const e = o[k] || (o[k] = { name: String(t.owedBy).trim(), due: 0, adv: 0, back: 0 });
+    if (foEUR(t)) { e.adv += foEUR(t); e.due += foEUR(t); }
+    else if (t.kind === 'entrata' && t.reimb) { e.back += +t.amount || 0; e.due -= +t.amount || 0; }
+  }
+  return o;
+}
+const receivTotal = upTo => Object.values(receivables(upTo)).reduce((x, e) => x + e.due, 0);
 function yearTotals(year, upToMD) {
   let inc = 0, out = 0;
   for (const t of S.transactions) {
     if (!String(t.date).startsWith(year)) continue;
     if (upToMD && String(t.date).slice(5) > upToMD) continue;
-    if (t.kind === 'entrata') inc += +t.amount || 0; else if (isOut(t)) out += +t.amount || 0;
+    if (isInc(t)) inc += +t.amount || 0; else if (isOut(t)) out += myAmt(t);
   }
   return { inc, out, net: inc - out, rate: inc > 0 ? (inc - out) / inc : NaN };
 }
@@ -634,8 +653,8 @@ function monthStats(ym) {
   for (const t of S.transactions) {
     if (ymOf(t.date) !== ym) continue;
     const v = +t.amount || 0;
-    if (t.kind === 'entrata') inc += v;
-    else if (isOut(t)) { exp += v; byCat[t.categoryId] = (byCat[t.categoryId] || 0) + v; }
+    if (isInc(t)) inc += v;
+    else if (isOut(t)) { const m = myAmt(t); exp += m; byCat[t.categoryId] = (byCat[t.categoryId] || 0) + m; }
   }
   return { inc, exp, net: inc - exp, rate: inc > 0 ? (inc - exp) / inc : NaN, byCat };
 }
@@ -905,7 +924,7 @@ function txRow(t) {
   if (t.kind === 'giroconto') { title = t.note || 'Giroconto'; sub = `${a?.name || '?'} → ${acc(t.toAccountId)?.name || '?'}`; cls = 'muted'; sign = ''; }
   else if (t.kind === 'investimento') { title = t.note || 'Acquisto quote'; sub = [`${nf.format(+t.quantity || 0)} quote a ${money(+t.price || 0)}`, a?.name].filter(Boolean).join(' · '); cls = 'muted'; sign = '−'; }
   else if (t.kind === 'accantonamento') { title = t.note || 'Accantonamento ' + (c?.name || ''); sub = ['Accantonato', c?.name, `${a?.name || '?'} → ${acc(t.toAccountId)?.name || '?'}`].filter(Boolean).join(' · '); cls = ''; sign = '−'; }
-  else { const fromFund = !t.paidBy && t.kind === 'spesa' && isReserve(t.accountId); title = t.note || c?.name || 'Movimento'; sub = [t.paidBy ? 'Pagata da ' + t.paidBy : '', fromFund ? 'Pagato dal fondo' : '', c?.name, propById(t.propertyId)?.name, t.paidBy ? '' : a?.name].filter(Boolean).join(' · '); cls = t.kind === 'entrata' ? 'pos' : (fromFund || t.paidBy) ? 'muted' : ''; sign = t.kind === 'entrata' ? '+' : '−'; }
+  else { const fromFund = !t.paidBy && t.kind === 'spesa' && isReserve(t.accountId); title = t.note || c?.name || 'Movimento'; sub = [t.paidBy ? 'Pagata da ' + t.paidBy : '', foEUR(t) ? `Anticipati ${money0(foEUR(t))} per ${t.owedBy || 'altri'}` : '', t.reimb ? 'Rimborso da ' + (t.owedBy || '?') : '', fromFund ? 'Pagato dal fondo' : '', c?.name, propById(t.propertyId)?.name, t.paidBy ? '' : a?.name].filter(Boolean).join(' · '); cls = t.reimb ? 'muted' : t.kind === 'entrata' ? 'pos' : (fromFund || t.paidBy) ? 'muted' : ''; sign = t.kind === 'entrata' ? '+' : '−'; }
   return `<div class="tx" data-act="edit-tx" data-id="${esc(t.id)}" tabindex="0" role="button">${catBadge(c, t.kind)}<div class="tx-main"><b>${esc(title)}</b><small>${esc(sub)}</small></div><div class="tx-amt num ${cls}">${sign}${txCur(t) !== BASE ? moneyC(txOrig(t), txCur(t)) : money(+t.amount)}${txCur(t) !== BASE ? `<small class="muted" style="display:block;font-weight:400;font-size:.75rem">≈ ${money(+t.amount)}</small>` : ''}</div></div>`;
 }
 function txList(list, { group = true } = {}) {
@@ -915,7 +934,7 @@ function txList(list, { group = true } = {}) {
   for (const t of list) {
     if (t.date !== cur) {
       cur = t.date;
-      const day = list.filter(x => x.date === cur).reduce((s, x) => s + (x.kind === 'entrata' ? +x.amount : isOut(x) ? -x.amount : 0), 0);
+      const day = list.filter(x => x.date === cur).reduce((s, x) => s + (isInc(x) ? +x.amount : isOut(x) ? -myAmt(x) : 0), 0);
       out += `<div class="txday"><span>${dayLabel(cur)}</span><span class="num">${day ? (day > 0 ? '+' : '−') + money(Math.abs(day)) : ''}</span></div>`;
     }
     out += txRow(t);
@@ -979,11 +998,11 @@ VIEWS.mensile = () => {
 };
 function yearByCat(year) {
   const o = {};
-  for (const t of S.transactions) if (isOut(t) && String(t.date).startsWith(year)) o[t.categoryId] = (o[t.categoryId] || 0) + (+t.amount || 0);
+  for (const t of S.transactions) if (isOut(t) && String(t.date).startsWith(year)) o[t.categoryId] = (o[t.categoryId] || 0) + myAmt(t);
   return o;
 }
 VIEWS.panoramica = () => {
-  const y = S.ui.year, yt = yearTotals(y), nw = sumObj(balances()) + investTotal();
+  const y = S.ui.year, yt = yearTotals(y), nw = sumObj(balances()) + investTotal() + receivTotal();
   return `
   <div class="head with-nav"><div><div class="eyebrow">Panoramica</div><h1>Anno ${y}</h1></div>
     <div class="head-actions">${eyeBtn()}<div class="month-nav"><button class="icon-btn" data-act="year" data-d="-1" aria-label="Anno precedente">‹</button>${yearPick('year')}<button class="icon-btn" data-act="year" data-d="1" aria-label="Anno successivo">›</button></div><button class="btn primary hide-m" data-act="new-tx">+ Movimento</button></div></div>
@@ -1040,10 +1059,10 @@ VIEWS.proprieta = () => {
   const ms = isRent ? null : mortgageStats(pr), year = S.ui.propYear, mcat = (isRent ? rent.categoryId : pr.mortgage?.categoryId) || '';
   const all = S.transactions.filter(t => t.propertyId === pr.id && t.kind !== 'giroconto');
   const ptx = sortTx(all.filter(t => String(t.date).startsWith(year)));
-  const outsAll = ptx.filter(t => t.kind === 'spesa'), outs = outsAll.filter(t => !t.paidBy), others = outsAll.filter(t => t.paidBy), ins = ptx.filter(t => t.kind === 'entrata');
+  const outsAll = ptx.filter(t => t.kind === 'spesa'), outs = outsAll.filter(t => !t.paidBy), others = outsAll.filter(t => t.paidBy), ins = ptx.filter(isInc);
   const othersTot = others.reduce((s, t) => s + +t.amount, 0);
-  const mort = outs.filter(t => mcat && t.categoryId === mcat).reduce((s, t) => s + +t.amount, 0);
-  const byCat = {}; outs.filter(t => !(mcat && t.categoryId === mcat)).forEach(t => byCat[t.categoryId] = (byCat[t.categoryId] || 0) + +t.amount);
+  const mort = outs.filter(t => mcat && t.categoryId === mcat).reduce((s, t) => s + myAmt(t), 0);
+  const byCat = {}; outs.filter(t => !(mcat && t.categoryId === mcat)).forEach(t => byCat[t.categoryId] = (byCat[t.categoryId] || 0) + myAmt(t));
   const exp = sumObj(byCat), tot = exp + mort, inc = ins.reduce((s, t) => s + +t.amount, 0);
   const cy = todayISO().slice(0, 4), months = year < cy ? 12 : year > cy ? 0 : +todayISO().slice(5, 7);
   const allMortPaid = mcat ? all.filter(t => t.kind === 'spesa' && t.categoryId === mcat).reduce((s, t) => s + +t.amount, 0) : 0;
@@ -1170,7 +1189,7 @@ function yearBudget(year) {
   let other = 0;
   for (const t of S.transactions) {
     if (!isOut(t) || !String(t.date).startsWith(year)) continue;
-    const v = +t.amount || 0, m = +t.date.slice(5, 7) - 1;
+    const v = myAmt(t), m = +t.date.slice(5, 7) - 1;
     if (bIds.includes(t.categoryId)) { byCat[t.categoryId] = (byCat[t.categoryId] || 0) + v; byMonth[m] += v; }
     else other += v;
   }
@@ -1263,7 +1282,7 @@ function txListFiltered() {
     && (!S.ui.fProp || (S.ui.fProp === '-' ? !propById(t.propertyId) : t.propertyId === S.ui.fProp)));
   if (q) l = l.filter(t => [t.note, cat(t.categoryId)?.name, acc(t.accountId)?.name, String(t.amount).replace('.', ',')].join(' ').toLowerCase().includes(q));
   l = sortTx(l);
-  const inc = l.filter(t => t.kind === 'entrata').reduce((s, t) => s + +t.amount, 0), exp = l.filter(isOut).reduce((s, t) => s + +t.amount, 0);
+  const inc = l.filter(isInc).reduce((s, t) => s + +t.amount, 0), exp = l.filter(isOut).reduce((s, t) => s + myAmt(t), 0);
   return `<div class="panel-h"><h2>${l.length} moviment${l.length === 1 ? 'o' : 'i'}</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="pill pos num">+${money(inc)}</span><span class="pill num">−${money(exp)}</span></div></div>${txList(l.slice(0, 400))}${l.length > 400 ? `<p class="muted">Mostrati i primi 400. Restringi i filtri per vedere gli altri.</p>` : ''}`;
 }
 
@@ -1282,7 +1301,7 @@ function pastYearBudget(id, year) {
 }
 function spentIn(id, prefix) {
   let any = false, t = 0;
-  for (const tx of S.transactions) { if (!String(tx.date).startsWith(prefix)) continue; any = true; if (isOut(tx) && tx.categoryId === id) t += +tx.amount || 0; }
+  for (const tx of S.transactions) { if (!String(tx.date).startsWith(prefix)) continue; any = true; if (isOut(tx) && tx.categoryId === id) t += myAmt(tx); }
   return any ? t : null;
 }
 const prevHint = (label, v) => `<small class="muted money" style="display:block;font-size:.75rem;margin-top:3px;white-space:nowrap">${label}: ${v == null ? '—' : money0(v)}</small>`;
@@ -1298,7 +1317,7 @@ function budgetYearView() {
   const year = S.ui.budgetYear, y = yearBudget(year), cats = catsOf('spesa');
   const yb = S.settings.budgetsYear || {}, mb = S.settings.budgets || {};
   const spentAll = {};
-  for (const t of S.transactions) if (isOut(t) && String(t.date).startsWith(year)) spentAll[t.categoryId] = (spentAll[t.categoryId] || 0) + (+t.amount || 0);
+  for (const t of S.transactions) if (isOut(t) && String(t.date).startsWith(year)) spentAll[t.categoryId] = (spentAll[t.categoryId] || 0) + myAmt(t);
   const totB = y.yearB, totS = y.spent, left = totB - totS;
   const rows = cats.map(c => {
     const own = +yb[c.id] > 0, b = annualBudget(c.id, year), s = spentAll[c.id] || 0, r = b ? s / b : 0;
@@ -1348,6 +1367,7 @@ VIEWS.budget = () => {
 };
 
 VIEWS.patrimonio = () => {
+  const rcvAll = Object.values(receivables()).filter(e => Math.abs(e.due) > 0.005).sort((a, b) => b.due - a.due), rcv = rcvAll.reduce((x, e) => x + e.due, 0);
   const bal = balances(), balN = balancesNative(), liquid = sumObj(bal), inv = investTotal(), cost = S.holdings.reduce((a, h) => a + holdingCost(h), 0);
   const accs = activeAccounts();
   const byClass = {};
@@ -1358,7 +1378,7 @@ VIEWS.patrimonio = () => {
   const hs = [...S.holdings].sort((a, b) => holdingValue(b) - holdingValue(a));
   return `
   <div class="head with-nav"><div><div class="eyebrow">Patrimonio</div><h1>Patrimonio</h1></div><div class="head-actions">${eyeBtn()}</div></div>
-  ${heroCard('Patrimonio netto', money0(liquid + inv), [['Liquidità', 'sav', money0(liquid), liquid < 0 ? 'neg' : ''], ['Investimenti', 'neu', money0(inv)], ['Guadagno', inv - cost >= 0 ? 'in' : 'out', (inv - cost >= 0 ? '+' : '−') + money0(Math.abs(inv - cost)), inv - cost >= 0 ? 'pos' : 'neg']])}
+  ${heroCard('Patrimonio netto', money0(liquid + inv + rcv), [['Liquidità', 'sav', money0(liquid), liquid < 0 ? 'neg' : ''], ['Investimenti', 'neu', money0(inv)], ...(Math.abs(rcv) > 0.005 ? [['Da ricevere', 'in', money0(rcv)]] : []), ['Guadagno', inv - cost >= 0 ? 'in' : 'out', (inv - cost >= 0 ? '+' : '−') + money0(Math.abs(inv - cost)), inv - cost >= 0 ? 'pos' : 'neg']])}
   <div class="prop-actions"><button class="btn small" data-act="new-acc">+ Conto</button><button class="btn small primary" data-act="new-hold">+ Investimento</button></div>
   <section class="panel"><div class="panel-h"><h2>Andamento del patrimonio netto</h2><div class="chart-legend"><span><i class="dot" style="background:var(--bar)"></i>Patrimonio netto</span><span><i class="dot" style="background:var(--chart-in)"></i>Liquidità</span></div></div><div class="chart" data-chart="networth"></div></section>
   <section class="panel"><div class="panel-h"><h2>Asset allocation</h2></div>
@@ -1376,6 +1396,9 @@ VIEWS.patrimonio = () => {
       return `<div class="list-row" style="flex-wrap:wrap"><div class="l" style="align-items:flex-start">${bankLogo(a, 30)}<div style="min-width:0"><b>${esc(a.name)}</b><small class="muted money" style="display:block">${from ? 'Addebito su ' + esc(from.name) : 'Conto di addebito non impostato'} · ${lastPay ? 'ultimo addebito ' + dShort(lastPay.date) + ' (' + money(+lastPay.amount) + ')' : 'nessun addebito registrato'}${since ? ' · speso da allora ' + money(spent) : ''}</small></div></div>
         <div style="display:flex;gap:8px;align-items:center;margin-left:auto"><span class="num ${due > 0.005 ? 'neg' : due < -0.005 ? 'pos' : 'muted'}" style="font-weight:600">${due > 0.005 ? 'Da pagare ' + money(due) : due < -0.005 ? 'A credito ' + money(-due) : 'Saldata'}</span>${due > 0.005 ? `<button class="btn small primary" data-act="card-pay" data-id="${esc(a.id)}">Registra addebito</button>` : ''}</div></div>`;
     }).join('')}</section>`; })()}
+  ${rcvAll.length ? `<section class="panel"><div class="panel-h"><h2>Soldi da ricevere</h2><span class="muted num">${money(rcv)}</span></div>
+    ${rcvAll.map(e => `<div class="list-row"><div class="l"><div style="min-width:0"><b>${esc(e.name)}</b><small class="muted money" style="display:block">Anticipati ${money0(e.adv)}${e.back ? ' · rimborsati ' + money0(e.back) : ''}</small></div></div><div style="display:flex;gap:8px;align-items:center"><span class="num ${e.due < 0 ? 'neg' : ''}" style="font-weight:600">${e.due < 0 ? 'Ti ha dato in più ' + money(-e.due) : money(e.due)}</span>${e.due > 0.005 ? `<button class="btn small primary" data-act="reimb" data-name="${esc(e.name)}" data-amt="${e.due.toFixed(2)}">Rimborso</button>` : ''}</div></div>`).join('')}
+  </section>` : ''}
   <section class="panel"><div class="panel-h"><h2>Conti</h2><span class="muted num">Totale ${money(accs.filter(a => a.type !== 'credito').reduce((s, a) => s + (bal[a.id] || 0), 0))}</span></div>
     ${accs.filter(a => a.type !== 'credito').length ? `<div class="acc-list">${accs.filter(a => a.type !== 'credito').map(a => `<button class="acc" data-act="edit-acc" data-id="${esc(a.id)}"><div class="acc-top">${bankLogo(a)}<span class="pill">${esc(ACC_TYPES[a.type] || a.type)}</span></div><b>${esc(a.name)}</b><span class="v num ${bal[a.id] < 0 ? 'neg' : ''}">${accCur(a.id) !== BASE ? moneyC(balN[a.id] || 0, accCur(a.id)) : money(bal[a.id] || 0)}</span>${accCur(a.id) !== BASE ? `<span class="muted num" style="font-size:.8rem">${rateOf(accCur(a.id)) ? '≈ ' + money(bal[a.id] || 0) : 'Cambio ' + accCur(a.id) + ' mancante'}</span>` : ''}</button>`).join('')}</div>`
       : `<div class="empty"><p>Aggiungi il tuo primo conto: conto corrente, carta, contanti o conto titoli.</p><button class="btn primary" data-act="new-acc">+ Conto</button></div>`}
@@ -1502,7 +1525,7 @@ function networthChart(W) {
     let inv;
     if (m === cur) inv = investTotal();
     else { const s = snaps.filter(x => x.date <= endD).pop(); inv = s ? +s.invest || 0 : 0; }
-    return { m, liq, nw: liq + inv };
+    return { m, liq, nw: liq + inv + receivTotal(endD) };
   });
   const H = 220, pl = 52, pr = 12, pt = 12, pb = 24, iw = W - pl - pr, ih = H - pt - pb;
   const lo0 = Math.min(0, ...pts.map(p => Math.min(p.liq, p.nw)));
@@ -1533,7 +1556,7 @@ function fieldHTML(f) {
   else if (f.type === 'checks') return `<div class="field" data-f="${f.id}"><label>${esc(f.label)}</label><div class="checks">${f.options.map((o, i) => `<label class="check"><input type="checkbox" data-multi name="${f.id}" id="${id}-${i}" value="${esc(o.v)}" ${(v || []).includes(o.v) ? 'checked' : ''}> ${esc(o.l)}</label>`).join('')}</div></div>`;
   else if (f.type === 'checkbox') return `<label class="check" data-f="${f.id}"><input type="checkbox" id="${id}" name="${f.id}" ${v ? 'checked' : ''}> ${esc(f.label)}</label>`;
   else if (f.type === 'color') inner = `<div style="display:flex;gap:6px;flex-wrap:wrap">${(f.palette || PALETTE).map(c => `<label style="cursor:pointer"><input type="radio" name="${f.id}" value="${c}" ${c === v ? 'checked' : ''} style="position:absolute;opacity:0" ${c === (f.palette || PALETTE)[0] ? `id="${id}"` : ''}><span class="dot" style="width:24px;height:24px;background:${c};outline:${c === v ? '2px solid var(--fg)' : 'none'};outline-offset:2px" data-swatch></span></label>`).join('')}</div>`;
-  else inner = `<input class="input${f.num ? ' num' : ''}" id="${id}" name="${f.id}" type="${f.type || 'text'}" ${f.num ? 'inputmode="decimal"' : ''} value="${esc(f.num && v !== '' ? String(v).replace('.', ',') : v)}" ${f.placeholder ? `placeholder="${esc(f.placeholder)}"` : ''} ${f.required ? 'required' : ''} autocomplete="off">`;
+  else inner = `<input class="input${f.num ? ' num' : ''}" id="${id}" name="${f.id}" type="${f.type || 'text'}" ${f.num ? 'inputmode="decimal"' : ''} ${f.list ? `list="${f.list}" autocomplete="off"` : ''} value="${esc(f.num && v !== '' ? String(v).replace('.', ',') : v)}" ${f.placeholder ? `placeholder="${esc(f.placeholder)}"` : ''} ${f.required ? 'required' : ''} autocomplete="off">`;
   return `<div class="field" data-f="${f.id}">${lab}${inner}${f.hint ? `<small class="muted">${esc(f.hint)}</small>` : ''}</div>`;
 }
 function openForm(o) {
@@ -1593,6 +1616,9 @@ function txForm(t, preset) {
       { id: 'categoryId', label: 'Categoria', type: 'select', value: t.categoryId || '', options: [{ v: '', l: '—' }] },
       ...(S.properties.length ? [{ id: 'propertyId', label: 'Proprietà', type: 'select', value: t.propertyId || '', options: [{ v: '', l: '— nessuna —' }, ...propOptions()], hint: 'A quale immobile si riferisce (luce, condominio, rata del mutuo…)' }] : []),
       { id: 'byOther', label: 'Pagata da un\'altra persona', type: 'checkbox', value: !!t.paidBy },
+      { id: 'advance', label: 'Anticipata per un\'altra persona', type: 'checkbox', value: !!(+t.forOthers > 0) },
+      { id: 'isReimb', label: 'Rimborso di soldi anticipati', type: 'checkbox', value: !!t.reimb },
+      [{ id: 'othersAmt', label: 'Da farti rimborsare', num: true, value: +t.forOthers > 0 ? +(+t.forOthers / (txCur(t) !== BASE && +t.rate ? +t.rate : 1)).toFixed(2) : '', placeholder: 'Tutto l\'importo' }, { id: 'owedBy', label: 'Da chi', value: t.owedBy || '', placeholder: 'Es. Marco', list: 'people-list' }],
       { id: 'paidBy', label: 'Chi ha pagato', value: t.paidBy || '', placeholder: 'Es. Marco, i miei genitori, l\'inquilino' }
     ],
     onChange(v, form, ev) {
@@ -1611,7 +1637,11 @@ function txForm(t, preset) {
         if (FX_ONLINE) { const cur = v.currency, d = v.date; fxFetch(cur, d).then(r => { if (r && form.isConnected && form.elements.currency.value === cur) fill(r.rate, 'cambio BCE del ' + dShort(r.date)); }); }
       } else updHint('');
       const ac = v.kind === 'accantonamento', other = v.kind === 'spesa' && !!v.byOther;
-      showField(form, 'byOther', v.kind === 'spesa'); showField(form, 'paidBy', other); showField(form, 'accountId', !other);
+      const adv = v.kind === 'spesa' && !other && !!v.advance, rb = v.kind === 'entrata' && !!v.isReimb;
+      showField(form, 'advance', v.kind === 'spesa' && !other); showField(form, 'isReimb', v.kind === 'entrata');
+      showField(form, 'othersAmt', adv); showField(form, 'owedBy', adv || rb);
+      if (!form.querySelector('#people-list')) form.insertAdjacentHTML('beforeend', `<datalist id="people-list">${Object.values(receivables()).map(e => `<option value="${esc(e.name)}">`).join('')}</datalist>`);
+      showField(form, 'byOther', v.kind === 'spesa' && !adv); showField(form, 'paidBy', other); showField(form, 'accountId', !other);
       showField(form, 'toAccountId', g || ac); showField(form, 'categoryId', !g); showField(form, 'propertyId', !g && !ac);
       form.querySelector('[data-f="accountId"] label').textContent = g || ac ? 'Dal conto' : 'Conto';
       form.querySelector('[data-f="toAccountId"] label').textContent = ac ? 'Nel fondo' : 'Verso il conto';
@@ -1637,12 +1667,16 @@ function txForm(t, preset) {
       if ((v.kind === 'giroconto' || v.kind === 'accantonamento') && v.accountId === v.toAccountId) return v.kind === 'giroconto' ? 'Scegli due conti diversi per il giroconto.' : 'Scegli un fondo diverso dal conto di partenza.';
       if (v.kind === 'accantonamento' && !v.categoryId) return 'Scegli la categoria della spesa futura (es. Tasse).';
       if (v.kind === 'spesa' && v.byOther && !String(v.paidBy || '').trim()) return 'Scrivi chi ha pagato la spesa.';
+      if (((v.kind === 'spesa' && v.advance && !v.byOther) || (v.kind === 'entrata' && v.isReimb)) && !String(v.owedBy || '').trim()) return v.kind === 'spesa' ? 'Scrivi per chi hai anticipato la spesa.' : 'Scrivi chi ti ha rimborsato.';
+      if (v.kind === 'spesa' && v.advance && v.othersAmt && !(parseNum(v.othersAmt) > 0 && parseNum(v.othersAmt) <= a)) return 'La parte da farti rimborsare deve essere tra zero e l\'importo della spesa.';
     },
     async onSubmit(v) {
       const orig = Math.round(parseNum(v.amount) * 100) / 100, rate = v.currency === BASE ? 1 : parseNum(v.rate);
       const doc = { kind: v.kind, amount: Math.round(orig * rate * 100) / 100, date: v.date, note: v.note.trim(), accountId: v.accountId, createdAt: t.createdAt || Date.now() };
       if (v.kind === 'giroconto') doc.toAccountId = v.toAccountId; else if (v.kind === 'accantonamento') { doc.toAccountId = v.toAccountId; doc.categoryId = v.categoryId || ''; } else { doc.categoryId = v.categoryId || ''; if (v.propertyId) doc.propertyId = v.propertyId; }
       if (v.kind === 'spesa' && v.byOther) doc.paidBy = String(v.paidBy).trim();
+      if (v.kind === 'spesa' && !v.byOther && v.advance) { doc.forOthers = Math.round((v.othersAmt ? parseNum(v.othersAmt) : orig) * rate * 100) / 100; doc.owedBy = String(v.owedBy).trim(); }
+      if (v.kind === 'entrata' && v.isReimb) { doc.reimb = true; doc.owedBy = String(v.owedBy).trim(); }
       if (v.currency !== BASE) { doc.currency = v.currency; doc.origAmount = orig; doc.rate = rate; }
       if (t.importKey) doc.importKey = t.importKey;
       if (t.demo) doc.demo = true;
@@ -2165,6 +2199,7 @@ document.addEventListener('click', e => {
   if (a === 'new-prop') return propForm();
   if (a === 'prop-sel') { S.ui.propId = id; render(); return; }
   if (a === 'prop-year') { S.ui.propYear = String(+S.ui.propYear + +t.dataset.d); render(); return; }
+  if (a === 'reimb') return txForm(null, { kind: 'entrata', reimb: true, owedBy: t.dataset.name, amount: +t.dataset.amt, note: 'Rimborso da ' + t.dataset.name, accountId: S.accounts.find(x => !x.archived && x.type === 'conto')?.id || undefined });
   if (a === 'prop-rent') { const pr = curProp(), r = pr?.rent || {}; return txForm(null, { categoryId: r.categoryId || guessCat(/affitto/i), amount: r.amount || '', note: 'Affitto ' + (pr?.name || ''), propertyId: pr?.id || '' }); }
   if (a === 'prop-pay') { const pr = curProp(), m = pr?.mortgage || {}; return txForm(null, { categoryId: m.categoryId || guessCat(/mutuo/i), amount: m.monthlyPayment || '', note: 'Rata mutuo ' + (pr?.name || ''), propertyId: pr?.id || '' }); }
   if (a === 'prop-exp') {
